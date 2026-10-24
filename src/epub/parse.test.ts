@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { buildEpub } from '../../test/epub-builder';
-import { EpubError, parseEpub, resolvePath } from './parse';
+import { EpubError, mergeStubSegments, parseEpub, resolvePath } from './parse';
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47]);
 
@@ -100,6 +100,25 @@ describe('parseEpub', () => {
   test('rejects files that are not EPUBs or have no text', async () => {
     await expect(parseEpub(new TextEncoder().encode('nope'))).rejects.toBeInstanceOf(EpubError);
     await expect(parseEpub(await buildEpub({ chapters: [['c.xhtml', '<p>  </p>']] }))).rejects.toThrow('no readable text');
+  });
+});
+
+describe('mergeStubSegments', () => {
+  test('folds title-only stubs into the next segment and joins the titles', () => {
+    expect(
+      mergeStubSegments([
+        { blocks: ['Front matter.'] },
+        { title: 'Article  Title', blocks: ['Article Title'] },
+        { title: 'A. Author', blocks: ['A. Author', 'Body text.'] },
+        { title: 'Short', blocks: ['## I', 'One.'] },
+        { title: 'Trailing', blocks: ['# Trailing'] },
+      ]),
+    ).toEqual([
+      { blocks: ['Front matter.'] },
+      { title: 'Article  Title — A. Author', blocks: ['Article Title', 'A. Author', 'Body text.'] },
+      { title: 'Short', blocks: ['## I', 'One.'] },
+      { title: 'Trailing', blocks: ['# Trailing'] },
+    ]);
   });
 });
 

@@ -53,6 +53,7 @@ interface TocEntry {
 /** Spine files longer than this with no TOC-driven split get Reader's heading split. */
 const MONOLITHIC_CHAPTER_CHARS = 100_000;
 
+
 const FONT_PATH = /\.(otf|ttf|ttc|eot|woff2?)$/i;
 const FONT_OBFUSCATION = new Set(['http://www.idpf.org/2008/embedding', 'http://ns.adobe.com/pdf/enc#RC']);
 
@@ -109,7 +110,7 @@ export async function parseEpub(data: ArrayBuffer | Uint8Array): Promise<ParsedB
     const fileEntries = toc.filter((entry) => entry.path === spinePath);
     const tocSplit = tocSplitPoints(body, fileEntries);
     const splitAt = tocSplit ?? headingSplitPoints(body);
-    const segments = convertBody(body, {
+    const segments = mergeStubSegments(convertBody(body, {
       splitAt,
       resolveImage: (src) => {
         const { path } = resolvePath(dirname(spinePath), src);
@@ -117,7 +118,7 @@ export async function parseEpub(data: ArrayBuffer | Uint8Array): Promise<ParsedB
         imagePaths.add(path);
         return path;
       },
-    });
+    }));
 
     // When the TOC split the file, its fragment entries title the later
     // segments; only an entry for the whole file can title the first.
@@ -278,6 +279,37 @@ function headingSplitPoints(body: Element): Map<Element, string> | undefined {
   const headings = childElements(body).filter((el) => /^h[1-3]$/.test(localName(el)));
   if (headings.length < 2) return undefined;
   return new Map(headings.map((el) => [el, collapseWhitespace(el.textContent ?? '') || 'Untitled']));
+}
+
+const normalizeTitle = (text: string) => text.replace(/^#+\s*/, '').replace(/\s+/g, ' ').trim().toLowerCase();
+
+/** A segment holding nothing but its own title. */
+function isTitleStub(segment: ContentSegment): boolean {
+  const title = segment.title && normalizeTitle(segment.title);
+  return !!title && segment.blocks.every((block) => normalizeTitle(block) === title);
+}
+
+/**
+ * Merge title-only stubs into the following segment. Some TOCs list a title and
+ * its byline as separate entries into the same file (JEP does), which would
+ * otherwise split an article into a one-line chapter and the body.
+ */
+export function mergeStubSegments(segments: ContentSegment[]): ContentSegment[] {
+  const merged: ContentSegment[] = [];
+  let pending: ContentSegment | undefined;
+  for (const segment of segments) {
+    const current: ContentSegment = pending
+      ? {
+          title: [pending.title, segment.title].filter(Boolean).join(' — ') || undefined,
+          blocks: [...pending.blocks, ...segment.blocks],
+        }
+      : segment;
+    pending = undefined;
+    if (isTitleStub(current)) pending = current;
+    else merged.push(current);
+  }
+  if (pending) merged.push(pending);
+  return merged;
 }
 
 /** The shallowest entry, preferring one that points at the whole file. */
