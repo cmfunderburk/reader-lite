@@ -269,12 +269,28 @@ export function ReaderView({ bookId }: { bookId: string }) {
       </div>
 
       <footer className="reader-footer">
-        {layout && position && (
-          <>
-            p. {pageIndex + 1}/{layout.pages.length} · Ch {position.chapter + 1}/{lastChapter + 1} · {percent}%
-            {pacerOn && ` · ${wpm} wpm`}
-          </>
-        )}
+        <span className="footer-info">
+          {layout && position && (
+            <>
+              p. {pageIndex + 1}/{layout.pages.length} · Ch {position.chapter + 1}/{lastChapter + 1} · {percent}%
+              {pacerOn && ` · ${wpm} wpm`}
+            </>
+          )}
+        </span>
+        {/* Always reachable, so pausing and resuming doesn't need the toolbars. */}
+        <button
+          className="footer-play"
+          onClick={togglePlay}
+          aria-label={pacer === 'playing' ? 'Pause' : 'Play'}
+        >
+          <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+            {pacer === 'playing' ? (
+              <path d="M4 3h3v10H4zM9 3h3v10H9z" fill="currentColor" />
+            ) : (
+              <path d="M5 3l8 5-8 5z" fill="currentColor" />
+            )}
+          </svg>
+        </button>
       </footer>
 
       {toolbars && book && (
