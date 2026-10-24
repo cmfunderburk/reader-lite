@@ -10,14 +10,15 @@ Requires [Bun](https://bun.com).
 
 ```bash
 bun install --frozen-lockfile
-bun run dev       # dev server with hot reload on 127.0.0.1:5418
+bun run dev       # dev server with hot reload on 127.0.0.1:5418 (desktop browser only)
+bun run ipad      # production mode, restarts on file changes; use this behind tailscale serve
 bun run verify    # typecheck + tests
 bun run start     # production mode
 ```
 
 ## Reading on an iPad over Tailscale
 
-The server binds to `127.0.0.1` only. Expose it to your tailnet over HTTPS:
+The server binds to `127.0.0.1` only. Bun's dev server rejects requests whose Host header isn't localhost, so serve production mode (`bun run ipad` or `bun run start`) and expose it to your tailnet over HTTPS:
 
 ```bash
 tailscale serve --bg 5418

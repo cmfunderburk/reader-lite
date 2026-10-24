@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun --hot server.ts",
+    "ipad": "NODE_ENV=production bun --watch server.ts",
     "start": "NODE_ENV=production bun server.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
