@@ -26,6 +26,12 @@ tailscale serve --bg 5418
 tailscale serve reset   # stop sharing
 ```
 
+After the first visit the app works offline: a service worker keeps the app itself, and books live in the iPad's own storage, so the desktop can be asleep or off. When the desktop serves a newer build, the app offers "A new version is ready · Reload". The dev server (`bun run dev`) removes the service worker instead of using it.
+
+Books and places stay on the device. **Backup** at the bottom of the library exports the reading state (a small JSON file) or everything including the books (a zip), and restores either one.
+
+The home-screen icon is drawn in `public/icon.svg`; `scripts/make-icons.sh` re-renders the PNGs (needs `rsvg-convert`).
+
 ## License
 
 Apache-2.0, same as Reader. See `LICENSE`.

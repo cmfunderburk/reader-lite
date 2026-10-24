@@ -40,6 +40,17 @@ export const SACCADE_RANGE = { min: 7, max: 15 } as const;
 
 const SETTINGS_KEY = 'reader';
 
+/** The known settings in `raw` (e.g. from a backup), each of the right type. */
+export function sanitizeSettings(raw: unknown): Partial<Settings> {
+  if (typeof raw !== 'object' || raw === null) return {};
+  const known: Partial<Record<keyof Settings, unknown>> = {};
+  for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof Settings)[]) {
+    const value = (raw as Record<string, unknown>)[key];
+    if (typeof value === typeof DEFAULT_SETTINGS[key]) known[key] = value;
+  }
+  return known as Partial<Settings>;
+}
+
 type SettingsContextValue = [Settings, (changes: Partial<Settings>) => void];
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);

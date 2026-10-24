@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { navigate } from '../route';
-import { deleteBook, listBooks, listPositions, type BookRecord, type PositionRecord } from '../store/db';
+import { sanitizeSettings, useSettings } from '../settings';
+import { deleteBook, getSetting, listBooks, listPositions, type BookRecord, type PositionRecord } from '../store/db';
+import { formatBytes, storageStatus, type StorageStatus } from '../store/persistence';
+import { exportEverything, exportReadingState, restoreBackup, restoreErrorMessage, saveFile, type RestoreResult } from './backup';
+import { LAST_EXPORT_KEY } from './backupState';
 import { groupImports, importErrorMessage, importSource } from './importBook';
 
 /** Folder picking, where the browser offers it (desktop; possibly not iPad). */
@@ -19,6 +23,110 @@ function progressLabel(book: BookRecord, position: PositionRecord | undefined): 
     : `${book.chapters.length} ${book.chapters.length === 1 ? 'chapter' : 'chapters'}`;
   const opened = book.lastOpenedAt ? `opened ${new Date(book.lastOpenedAt).toLocaleDateString()}` : 'not opened yet';
   return [where, book.wpm && `${book.wpm} wpm`, opened].filter(Boolean).join(' · ');
+}
+
+function restoreMessage(result: RestoreResult): string {
+  const books = (n: number) => `${n} ${n === 1 ? 'book' : 'books'}`;
+  const parts = [
+    result.added > 0 && `added ${books(result.added)}`,
+    result.restored > 0 && `restored your place in ${books(result.restored)}`,
+    result.waiting > 0 &&
+      `${books(result.waiting)} ${result.waiting === 1 ? "isn't" : "aren't"} on this device yet; ${result.waiting === 1 ? 'its place' : 'their places'} will be restored when added`,
+    result.failed.length > 0 && `couldn't add ${result.failed.join(', ')}`,
+  ].filter(Boolean) as string[];
+  if (parts.length === 0) return 'Nothing to restore.';
+  const text = parts.join('; ');
+  return text.charAt(0).toUpperCase() + text.slice(1) + '.';
+}
+
+/** Storage and backup: how much the library takes, whether it's kept, export and restore. */
+function BackupSection({ bookCount, onRestored }: { bookCount: number; onRestored: () => Promise<void> }) {
+  const [settings, updateSettings] = useSettings();
+  const [storage, setStorage] = useState<StorageStatus | null>(null);
+  const [lastExport, setLastExport] = useState<number | undefined>();
+  const [busy, setBusy] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const restoreInput = useRef<HTMLInputElement>(null);
+
+  const load = useCallback(async () => {
+    setStorage(await storageStatus());
+    setLastExport(await getSetting<number>(LAST_EXPORT_KEY).catch(() => undefined));
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load, bookCount]);
+
+  /** Run an export or restore; `busy` is the progress text shown meanwhile. */
+  const run = async (label: string, progress: string, work: () => Promise<string | null>) => {
+    setBusy(progress);
+    setMessage(null);
+    try {
+      setMessage(await work());
+    } catch (err) {
+      console.error(err);
+      setMessage(`${label} failed: ${restoreErrorMessage(err)}`);
+    } finally {
+      setBusy(null);
+      void load();
+    }
+  };
+
+  const onExport = (everything: boolean) =>
+    run('Export', 'Preparing the export…', async () => {
+      await saveFile(everything ? await exportEverything(settings) : await exportReadingState(settings));
+      return null;
+    });
+
+  const onRestore = (file: File | undefined) => {
+    if (restoreInput.current) restoreInput.current.value = '';
+    if (!file) return;
+    void run('Restore', 'Restoring…', async () => {
+      const result = await restoreBackup(file, (done, total) => setBusy(`Adding books: ${done} of ${total} done…`));
+      updateSettings(sanitizeSettings(result.settings));
+      await onRestored();
+      return restoreMessage(result);
+    });
+  };
+
+  const kept =
+    storage?.persisted === true ? 'kept by the system' : storage?.persisted === false ? 'may be cleared if the device runs low on space' : null;
+  return (
+    <section className="library-backup">
+      <h2>Backup</h2>
+      <p className="backup-note">
+        {[storage?.usageBytes !== undefined && `${formatBytes(storage.usageBytes)} on this device`, kept].filter(Boolean).join(', ')}
+        {storage && '. '}
+        {lastExport ? `Last exported ${new Date(lastExport).toLocaleDateString()}.` : 'Not exported yet.'}
+      </p>
+      <div className="library-actions wrap">
+        <button className="button" disabled={!!busy} onClick={() => void onExport(false)}>
+          Export reading state
+        </button>
+        <button className="button" disabled={!!busy} onClick={() => void onExport(true)}>
+          Export everything
+        </button>
+        <button className="button" disabled={!!busy} onClick={() => restoreInput.current?.click()}>
+          Restore…
+        </button>
+      </div>
+      <input
+        ref={restoreInput}
+        type="file"
+        accept=".json,.zip,application/json,application/zip"
+        hidden
+        onChange={(event) => onRestore(event.target.files?.[0])}
+      />
+      <p className="backup-note">
+        Reading state is a small file with your places, speeds and settings. Everything adds the books themselves, for
+        setting up another device.
+      </p>
+      {(busy ?? message) && (
+        <p className="backup-status" role="status">
+          {busy ?? message}
+        </p>
+      )}
+    </section>
+  );
 }
 
 export function Library() {
@@ -148,6 +256,8 @@ export function Library() {
           </li>
         ))}
       </ul>
+
+      {books && <BackupSection bookCount={books.length} onRestored={refresh} />}
     </main>
   );
 }

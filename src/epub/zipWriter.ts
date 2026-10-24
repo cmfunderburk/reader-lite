@@ -1,9 +1,10 @@
 // Writes an uncompressed (stored) zip. Used to keep a multi-file Markdown
-// import as one file, so it can be re-parsed later like an EPUB.
+// import as one file, so it can be re-parsed later like an EPUB, and for
+// library backups.
 
 export interface ZipEntryInput {
   name: string;
-  data: Uint8Array;
+  data: Uint8Array<ArrayBuffer>;
 }
 
 const CRC_TABLE = (() => {
@@ -22,11 +23,14 @@ export function crc32(data: Uint8Array): number {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-/** A stored zip of `entries` in the given order, with UTF-8 names and no timestamps. */
-export function buildStoredZip(entries: ZipEntryInput[]): Uint8Array {
+/**
+ * A stored zip of `entries` in the given order, with UTF-8 names and no
+ * timestamps, as the pieces to concatenate (a Blob can take them as they are).
+ */
+export function storedZipParts(entries: ZipEntryInput[]): Uint8Array<ArrayBuffer>[] {
   const encoder = new TextEncoder();
-  const parts: Uint8Array[] = [];
-  const centrals: Uint8Array[] = [];
+  const parts: Uint8Array<ArrayBuffer>[] = [];
+  const centrals: Uint8Array<ArrayBuffer>[] = [];
   let offset = 0;
 
   for (const entry of entries) {
@@ -71,9 +75,14 @@ export function buildStoredZip(entries: ZipEntryInput[]): Uint8Array {
   ev.setUint32(12, directorySize, true);
   ev.setUint32(16, offset, true);
 
-  const out = new Uint8Array(offset + directorySize + end.length);
+  return [...parts, ...centrals, end];
+}
+
+export function buildStoredZip(entries: ZipEntryInput[]): Uint8Array {
+  const parts = storedZipParts(entries);
+  const out = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
   let at = 0;
-  for (const part of [...parts, ...centrals, end]) {
+  for (const part of parts) {
     out.set(part, at);
     at += part.length;
   }

@@ -120,6 +120,50 @@ button, select {
   gap: 8px;
 }
 
+.library-actions.wrap {
+  flex-wrap: wrap;
+}
+
+.library-backup {
+  margin-top: 40px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.library-backup h2 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.backup-note,
+.backup-status {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.backup-status {
+  color: var(--fg);
+}
+
+.update-banner {
+  position: fixed;
+  z-index: 50;
+  top: max(12px, env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 6px 6px 16px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.12);
+  font-size: 15px;
+  white-space: nowrap;
+}
+
 .library-empty {
   color: var(--muted);
   line-height: 1.6;

@@ -6,7 +6,7 @@
     "dev": "bun --hot server.ts",
     "ipad": "NODE_ENV=production bun --watch server.ts",
     "start": "NODE_ENV=production bun server.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p src/sw",
     "test": "bun test",
     "verify": "bun run typecheck && bun test"
   },

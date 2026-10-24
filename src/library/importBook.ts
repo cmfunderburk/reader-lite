@@ -2,6 +2,8 @@ import { EpubError, PARSER_VERSION, parseEpub, type ParsedBook } from '../epub/p
 import { ZipArchive, ZipError } from '../epub/zip';
 import { buildStoredZip } from '../epub/zipWriter';
 import { imageMediaType, isIncluded, isMarkdownPath, parseMarkdownBook } from '../markdown/book';
+import { requestPersistence } from '../store/persistence';
+import { applyPendingRestore, BACKUP_STATE_FILE, nearestChapterTitled } from './backupState';
 import {
   getBook,
   getFile,
@@ -22,17 +24,6 @@ export interface ImportResult {
 async function sha256Hex(data: ArrayBuffer): Promise<string> {
   const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', data));
   return Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('');
-}
-
-/** Ask the browser not to evict our storage. Safari grants this to home-screen apps. */
-async function requestPersistence(): Promise<void> {
-  try {
-    if (navigator.storage?.persisted && !(await navigator.storage.persisted())) {
-      await navigator.storage.persist();
-    }
-  } catch {
-    // Not fatal: storage just stays best-effort.
-  }
 }
 
 /**
@@ -64,7 +55,7 @@ export function groupImports(files: File[]): ImportSource[] {
 
 export async function importSource(source: ImportSource): Promise<ImportResult> {
   if (source.kind === 'markdown') {
-    const files = new Map<string, Uint8Array>();
+    const files = new Map<string, Uint8Array<ArrayBuffer>>();
     for (const file of source.files) {
       const path = pickedPath(file);
       if (isIncluded(path)) files.set(path, new Uint8Array(await file.arrayBuffer()));
@@ -86,6 +77,7 @@ export async function importSource(source: ImportSource): Promise<ImportResult> 
     }
     // An EPUB that was renamed (or zipped by a tool) still has its container.
     if (zip.has('META-INF/container.xml')) return importEpub(file);
+    if (zip.has(BACKUP_STATE_FILE)) throw new EpubError('this is a Reader Lite backup; use Restore at the bottom of the library');
     return importMarkdown(await markdownFiles(zip), file.name.replace(/\.zip$/i, ''), data, file.name);
   }
   return importEpub(file);
@@ -122,6 +114,7 @@ async function importMarkdown(
     parserVersion: PARSER_VERSION,
   };
   await saveBook(book, chapterRecords(id, parsed), assetRecords(id, parsed), { bookId: id, name: fileName, data });
+  await applyPendingRestore(id);
   void requestPersistence();
   return { book, duplicate: false };
 }
@@ -145,6 +138,7 @@ export async function importEpub(file: File): Promise<ImportResult> {
   };
 
   await saveBook(book, chapterRecords(id, parsed), assetRecords(id, parsed), { bookId: id, name: file.name, data });
+  await applyPendingRestore(id);
   void requestPersistence();
   return { book, duplicate: false };
 }
@@ -194,13 +188,7 @@ export async function reparseBook(book: BookRecord): Promise<BookRecord> {
   const position = await getPosition(book.id);
   await replaceBookContent(updated, chapterRecords(book.id, parsed), assetRecords(book.id, parsed));
   if (position) {
-    const oldTitle = book.chapters[position.chapter]?.title;
-    let best = -1;
-    updated.chapters.forEach((chapter, index) => {
-      if (chapter.title === oldTitle && (best < 0 || Math.abs(index - position.chapter) < Math.abs(best - position.chapter))) {
-        best = index;
-      }
-    });
+    const best = nearestChapterTitled(updated.chapters, position.chapter, book.chapters[position.chapter]?.title);
     await savePosition(
       best >= 0
         ? { ...position, chapter: best, updatedAt: Date.now() }
