@@ -1,25 +1,21 @@
 import { useEffect, useState } from 'react';
 
-// Hash routes, so a reload (or reopening the home-screen app) lands on the same screen.
-// A book route without a chapter resumes from the saved position.
-export type Route = { screen: 'library' } | { screen: 'book'; bookId: string; chapter?: number };
+// Hash routes, so a reload (or reopening the home-screen app) lands on the same
+// screen. The reader restores its own position, so a book route is just the id.
+export type Route = { screen: 'library' } | { screen: 'book'; bookId: string };
 
 export function parseRoute(hash: string): Route {
-  const match = hash.match(/^#\/book\/([0-9a-f]+)(?:\/(\d+))?$/);
-  if (match) return { screen: 'book', bookId: match[1]!, chapter: match[2] === undefined ? undefined : Number(match[2]) };
+  const match = hash.match(/^#\/book\/([0-9a-f]+)$/);
+  if (match) return { screen: 'book', bookId: match[1]! };
   return { screen: 'library' };
 }
 
 export function routeHash(route: Route): string {
-  if (route.screen === 'library') return '#/';
-  return route.chapter === undefined ? `#/book/${route.bookId}` : `#/book/${route.bookId}/${route.chapter}`;
+  return route.screen === 'book' ? `#/book/${route.bookId}` : '#/';
 }
 
-export function navigate(route: Route, { replace = false } = {}): void {
-  const hash = routeHash(route);
-  if (replace) history.replaceState(null, '', hash);
-  else location.hash = hash;
-  if (replace) window.dispatchEvent(new HashChangeEvent('hashchange'));
+export function navigate(route: Route): void {
+  location.hash = routeHash(route);
 }
 
 export function useRoute(): Route {

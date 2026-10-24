@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { navigate } from '../route';
-import { deleteBook, listBooks, type BookRecord } from '../store/db';
+import { deleteBook, listBooks, listPositions, type BookRecord, type PositionRecord } from '../store/db';
 import { importEpub, importErrorMessage } from './importEpub';
 
 interface ImportStatus {
@@ -9,21 +9,26 @@ interface ImportStatus {
   message?: string;
 }
 
-function progressLabel(book: BookRecord): string {
-  const chapters = `${book.chapters.length} ${book.chapters.length === 1 ? 'chapter' : 'chapters'}`;
+function progressLabel(book: BookRecord, position: PositionRecord | undefined): string {
+  const where = position
+    ? `ch ${position.chapter + 1} of ${book.chapters.length}`
+    : `${book.chapters.length} ${book.chapters.length === 1 ? 'chapter' : 'chapters'}`;
   const opened = book.lastOpenedAt ? `opened ${new Date(book.lastOpenedAt).toLocaleDateString()}` : 'not opened yet';
-  return `${chapters} · ${opened}`;
+  return [where, book.wpm && `${book.wpm} wpm`, opened].filter(Boolean).join(' · ');
 }
 
 export function Library() {
   const [books, setBooks] = useState<BookRecord[] | null>(null);
+  const [positions, setPositions] = useState(new Map<string, PositionRecord>());
   const [statuses, setStatuses] = useState<ImportStatus[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
     try {
-      setBooks(await listBooks());
+      const [bookList, positionList] = await Promise.all([listBooks(), listPositions()]);
+      setBooks(bookList);
+      setPositions(new Map(positionList.map((position) => [position.bookId, position])));
     } catch {
       setLoadError('Could not open the library storage on this device.');
     }
@@ -111,7 +116,7 @@ export function Library() {
             <button className="book-open" onClick={() => navigate({ screen: 'book', bookId: book.id })}>
               <span className="book-title">{book.title}</span>
               {book.author && <span className="book-author">{book.author}</span>}
-              <span className="book-meta">{progressLabel(book)}</span>
+              <span className="book-meta">{progressLabel(book, positions.get(book.id))}</span>
             </button>
             <button className="button subtle" onClick={() => void onRemove(book)} aria-label={`Remove ${book.title}`}>
               Remove

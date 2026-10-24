@@ -44,7 +44,7 @@ export interface FileRecord {
 export interface PositionRecord {
   bookId: string;
   chapter: number;
-  /** Character offset into the chapter's content. */
+  /** Non-whitespace characters into the chapter (stable across re-flow; see reader/layout.ts). */
   offset: number;
   updatedAt: number;
 }
@@ -163,8 +163,26 @@ export function getPosition(bookId: string): Promise<PositionRecord | undefined>
   );
 }
 
+export function listPositions(): Promise<PositionRecord[]> {
+  return transaction(['positions'], 'readonly', (tx) =>
+    promisify(tx.objectStore('positions').getAll() as IDBRequest<PositionRecord[]>),
+  );
+}
+
 export function savePosition(position: PositionRecord): Promise<void> {
   return transaction(['positions'], 'readwrite', (tx) => {
     tx.objectStore('positions').put(position);
+  });
+}
+
+export function getSetting<T>(key: string): Promise<T | undefined> {
+  return transaction(['settings'], 'readonly', (tx) =>
+    promisify(tx.objectStore('settings').get(key) as IDBRequest<T | undefined>),
+  );
+}
+
+export function putSetting<T>(key: string, value: T): Promise<void> {
+  return transaction(['settings'], 'readwrite', (tx) => {
+    tx.objectStore('settings').put(value, key);
   });
 }
