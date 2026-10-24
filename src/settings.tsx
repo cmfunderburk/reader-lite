@@ -16,6 +16,8 @@ export interface Settings {
   quietSweep: boolean;
   /** WPM for books that don't have their own yet. */
   defaultWpm: number;
+  /** WPM shared by all Wikipedia articles; 0 means follow defaultWpm. */
+  wikipediaWpm: number;
   mode: ReadingMode;
   generationDifficulty: GenerationDifficulty;
   /** In Generation mode, unmask each line as the sweep passes. */
@@ -30,6 +32,7 @@ export const DEFAULT_SETTINGS: Settings = {
   saccadeLength: 10,
   quietSweep: false,
   defaultWpm: DEFAULT_WPM,
+  wikipediaWpm: 0,
   mode: 'guided',
   generationDifficulty: 'normal',
   sweepReveal: true,

@@ -20,7 +20,11 @@ export interface BookRecord {
   /** Pacer WPM remembered for this book (M2). */
   wpm?: number;
   /** What the stored file is; missing means an EPUB. */
-  format?: 'epub' | 'markdown';
+  format?: 'epub' | 'markdown' | 'wikipedia';
+  /** Wikipedia: the article's one-line description. */
+  description?: string;
+  /** Wikipedia: the UTC date this was fetched as today's featured article. */
+  dailyFor?: string;
   /** PARSER_VERSION the content was produced by; missing means 1. */
   parserVersion?: number;
 }

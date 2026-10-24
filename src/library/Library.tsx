@@ -5,6 +5,8 @@ import { deleteBook, getSetting, listBooks, listPositions, type BookRecord, type
 import { formatBytes, storageStatus, type StorageStatus } from '../store/persistence';
 import { exportEverything, exportReadingState, restoreBackup, restoreErrorMessage, saveFile, type RestoreResult } from './backup';
 import { LAST_EXPORT_KEY } from './backupState';
+import { isListed } from '../wikipedia/daily';
+import { WikipediaSection } from '../wikipedia/WikipediaSection';
 import { groupImports, importErrorMessage, importSource } from './importBook';
 
 /** Folder picking, where the browser offers it (desktop; possibly not iPad). */
@@ -140,7 +142,7 @@ export function Library() {
   const refresh = useCallback(async () => {
     try {
       const [bookList, positionList] = await Promise.all([listBooks(), listPositions()]);
-      setBooks(bookList);
+      setBooks(bookList.filter(isListed));
       setPositions(new Map(positionList.map((position) => [position.bookId, position])));
     } catch {
       setLoadError('Could not open the library storage on this device.');
@@ -240,6 +242,8 @@ export function Library() {
         </section>
       )}
 
+      <WikipediaSection />
+
       {books?.length === 0 && <p className="library-empty">No books yet. Add an EPUB, or Markdown notes (a zipped folder or several .md files), from Files.</p>}
 
       <ul className="book-list">
@@ -247,7 +251,7 @@ export function Library() {
           <li key={book.id} className="book-row">
             <button className="book-open" onClick={() => navigate({ screen: 'book', bookId: book.id })}>
               <span className="book-title">{book.title}</span>
-              {book.author && <span className="book-author">{book.author}</span>}
+              {(book.author ?? book.description) && <span className="book-author">{book.author ?? book.description}</span>}
               <span className="book-meta">{progressLabel(book, positions.get(book.id))}</span>
             </button>
             <button className="button subtle" onClick={() => void onRemove(book)} aria-label={`Remove ${book.title}`}>

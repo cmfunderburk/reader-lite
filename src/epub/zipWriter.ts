@@ -78,7 +78,7 @@ export function storedZipParts(entries: ZipEntryInput[]): Uint8Array<ArrayBuffer
   return [...parts, ...centrals, end];
 }
 
-export function buildStoredZip(entries: ZipEntryInput[]): Uint8Array {
+export function buildStoredZip(entries: ZipEntryInput[]): Uint8Array<ArrayBuffer> {
   const parts = storedZipParts(entries);
   const out = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
   let at = 0;

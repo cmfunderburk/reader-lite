@@ -73,14 +73,15 @@ export function ReaderView({ bookId }: { bookId: string }) {
       }
       const saved = await getPosition(bookId);
       setBook(found);
-      setWpm(found.wpm ?? settings.defaultWpm);
+      // Wikipedia articles share one WPM; books each keep their own.
+      setWpm(found.format === 'wikipedia' ? settings.wikipediaWpm || settings.defaultWpm : (found.wpm ?? settings.defaultWpm));
       setPosition({
         chapter: Math.min(saved?.chapter ?? 0, found.chapters.length - 1),
         offset: saved?.offset ?? 0,
       });
       void updateBook(bookId, { lastOpenedAt: Date.now() });
     })();
-    // settings.defaultWpm only seeds books without their own WPM, so it isn't a dependency.
+    // The settings only seed the WPM when the book opens, so they aren't dependencies.
   }, [bookId]);
 
   useEffect(() => {
@@ -170,15 +171,17 @@ export function ReaderView({ bookId }: { bookId: string }) {
     [page, turnPage],
   );
 
+  const sharedWpm = book?.format === 'wikipedia';
   const changeWpm = useCallback(
     (delta: number) => {
       setWpm((current) => {
         const next = clampWpm(current + delta);
-        void updateBook(bookId, { wpm: next });
+        if (sharedWpm) updateSettings({ wikipediaWpm: next });
+        else void updateBook(bookId, { wpm: next });
         return next;
       });
     },
-    [bookId],
+    [bookId, sharedWpm, updateSettings],
   );
 
   const togglePlay = useCallback(() => {

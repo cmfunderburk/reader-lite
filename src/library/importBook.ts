@@ -3,6 +3,8 @@ import { ZipArchive, ZipError } from '../epub/zip';
 import { buildStoredZip } from '../epub/zipWriter';
 import { imageMediaType, isIncluded, isMarkdownPath, parseMarkdownBook } from '../markdown/book';
 import { requestPersistence } from '../store/persistence';
+import { WikipediaError, type WikiArticle } from '../wikipedia/article';
+import { ARTICLE_FILE, readWikipediaFile, wikipediaBook, wikipediaFile, type LeadImage } from '../wikipedia/book';
 import { applyPendingRestore, BACKUP_STATE_FILE, nearestChapterTitled } from './backupState';
 import {
   getBook,
@@ -11,6 +13,7 @@ import {
   replaceBookContent,
   saveBook,
   savePosition,
+  updateBook,
   type AssetRecord,
   type BookRecord,
   type ChapterRecord,
@@ -77,6 +80,10 @@ export async function importSource(source: ImportSource): Promise<ImportResult> 
     }
     // An EPUB that was renamed (or zipped by a tool) still has its container.
     if (zip.has('META-INF/container.xml')) return importEpub(file);
+    if (zip.has(ARTICLE_FILE)) {
+      const { article, image } = await readWikipediaFile(zip);
+      return importWikipedia(article, image);
+    }
     if (zip.has(BACKUP_STATE_FILE)) throw new EpubError('this is a Reader Lite backup; use Restore at the bottom of the library');
     return importMarkdown(await markdownFiles(zip), file.name.replace(/\.zip$/i, ''), data, file.name);
   }
@@ -113,6 +120,38 @@ async function importMarkdown(
     format: 'markdown',
     parserVersion: PARSER_VERSION,
   };
+  await saveBook(book, chapterRecords(id, parsed), assetRecords(id, parsed), { bookId: id, name: fileName, data });
+  await applyPendingRestore(id);
+  void requestPersistence();
+  return { book, duplicate: false };
+}
+
+/**
+ * Add a Wikipedia article. Its id comes from its title, so fetching it again
+ * (or restoring it) finds the same book. `dailyFor` marks today's article.
+ */
+export async function importWikipedia(article: WikiArticle, image: LeadImage | undefined, dailyFor?: string): Promise<ImportResult> {
+  const id = await sha256Hex(new TextEncoder().encode(`wikipedia:${article.title}`).buffer);
+  const existing = await getBook(id);
+  if (existing) {
+    if (dailyFor && existing.dailyFor !== dailyFor) await updateBook(id, { dailyFor });
+    return { book: { ...existing, dailyFor: dailyFor ?? existing.dailyFor }, duplicate: true };
+  }
+
+  const parsed = wikipediaBook(article, image);
+  const fileName = `${article.title.replaceAll('/', '_')}.wikipedia.zip`;
+  const book: BookRecord = {
+    id,
+    title: parsed.title,
+    description: article.description,
+    fileName,
+    addedAt: Date.now(),
+    chapters: chapterSummaries(parsed),
+    format: 'wikipedia',
+    dailyFor,
+    parserVersion: PARSER_VERSION,
+  };
+  const data = wikipediaFile(article, image).buffer;
   await saveBook(book, chapterRecords(id, parsed), assetRecords(id, parsed), { bookId: id, name: fileName, data });
   await applyPendingRestore(id);
   void requestPersistence();
@@ -173,10 +212,7 @@ export function isOutdated(book: BookRecord): boolean {
 export async function reparseBook(book: BookRecord): Promise<BookRecord> {
   const file = await getFile(book.id);
   if (!file) return book;
-  const parsed =
-    book.format === 'markdown'
-      ? await parseMarkdownBook(await markdownFiles(ZipArchive.open(file.data)), file.name.replace(/\.zip$/i, ''))
-      : await parseEpub(file.data);
+  const parsed = await parseStoredFile(book, file.data, file.name);
   const updated: BookRecord = {
     ...book,
     title: parsed.title,
@@ -198,8 +234,17 @@ export async function reparseBook(book: BookRecord): Promise<BookRecord> {
   return updated;
 }
 
+async function parseStoredFile(book: BookRecord, data: ArrayBuffer, name: string): Promise<ParsedBook> {
+  if (book.format === 'markdown') return parseMarkdownBook(await markdownFiles(ZipArchive.open(data)), name.replace(/\.zip$/i, ''));
+  if (book.format === 'wikipedia') {
+    const { article, image } = await readWikipediaFile(ZipArchive.open(data));
+    return wikipediaBook(article, image);
+  }
+  return parseEpub(data);
+}
+
 export function importErrorMessage(err: unknown): string {
-  if (err instanceof EpubError) return err.message;
+  if (err instanceof EpubError || err instanceof WikipediaError) return err.message;
   if (err instanceof DOMException && err.name === 'QuotaExceededError') return 'not enough storage space on this device';
   return 'unexpected error while importing';
 }

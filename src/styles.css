@@ -164,6 +164,72 @@ button, select {
   white-space: nowrap;
 }
 
+.wikipedia {
+  margin: 20px 0 8px;
+}
+
+.wiki-today {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  width: 100%;
+  padding: 12px;
+  text-align: left;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.wiki-image {
+  flex: none;
+  width: 112px;
+  height: 84px;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.wiki-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.wiki-label {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.wiki-title {
+  font-size: 17px;
+}
+
+.wiki-description,
+.wiki-note {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.wiki-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.link-button {
+  padding: 0;
+  color: var(--accent);
+  background: none;
+  border: none;
+  font: inherit;
+  text-decoration: underline;
+}
+
 .library-empty {
   color: var(--muted);
   line-height: 1.6;
