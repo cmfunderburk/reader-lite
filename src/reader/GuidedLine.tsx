@@ -176,7 +176,10 @@ export const GuidedLine = memo(function GuidedLine({
   const ovp = !showOvp || state === 'behind' ? 'none' : active ? 'passing' : 'static';
   const keepMasked = masked !== null && masked !== line.text && !(sweepReveal && state === 'behind');
   return (
-    <div className={`line ${line.type}`} data-line={index}>
+    <div
+      className={`line ${line.type}${line.rowStart ? ' row-start' : ''}${line.tableHeader ? ' table-header' : ''}`}
+      data-line={index}
+    >
       {active && durationMs > 0 && (
         <span className={`sweep${quietSweep ? ' quiet' : ''}`} style={{ width: `${line.text.length}ch` }} onAnimationEnd={finish}>
           <span className="sweep-bar" style={{ animationDuration: `${durationMs}ms`, animationPlayState: playState }} />

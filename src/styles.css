@@ -224,6 +224,12 @@ button, select {
   margin: 0 auto;
 }
 
+.reader-note {
+  margin-top: 30vh;
+  text-align: center;
+  color: var(--muted);
+}
+
 .line {
   position: relative;
   height: var(--line-height);
@@ -231,6 +237,26 @@ button, select {
 }
 
 .line.heading {
+  font-weight: 700;
+}
+
+/* Code keeps its layout on a tinted band; the band runs past the text so
+   indentation and wrapped continuations read as one block. */
+.line.code {
+  background: var(--bg-raised);
+  margin: 0 -0.5ch;
+  padding: 0 0.5ch;
+}
+
+.line.code .sweep {
+  left: 0.5ch;
+}
+
+.line.table.row-start {
+  box-shadow: inset 0 1px 0 var(--border);
+}
+
+.line.table-header {
   font-weight: 700;
 }
 

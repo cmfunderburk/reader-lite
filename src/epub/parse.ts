@@ -51,6 +51,13 @@ interface TocEntry {
 }
 
 /** Spine files longer than this with no TOC-driven split get Reader's heading split. */
+/**
+ * Bumped when parsing changes what a book's content looks like; books parsed
+ * by an older version are re-parsed from their stored file when opened.
+ * 2: code blocks, tables, callouts, merged title stubs.
+ */
+export const PARSER_VERSION = 2;
+
 const MONOLITHIC_CHAPTER_CHARS = 100_000;
 
 

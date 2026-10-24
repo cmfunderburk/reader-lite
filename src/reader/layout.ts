@@ -51,7 +51,7 @@ export function pageIndexForOffset(pages: Page[], offset: number): number {
   return index;
 }
 
-/** Lines the pacer visits: everything except blank spacer lines. */
+/** Lines the pacer visits: everything with something to read (not spacers or empty code lines). */
 export function isPacedLine(line: GuidedLine): boolean {
-  return line.type !== 'blank';
+  return line.type === 'figure' || (line.type !== 'blank' && line.text.trim() !== '');
 }

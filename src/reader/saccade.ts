@@ -4,13 +4,15 @@
 // asset-base figure URLs. Page grouping takes the current line width instead
 // of the fixed GUIDED_LINE_WIDTH.
 
+import { CODE_MARKER, TABLE_MARKER } from '../epub/content';
+import { flowCode, flowTable, wrapWords } from './blocks';
 import { calculateORP, normalizeText, wordPenalty } from './tokenizer';
 
 export const GUIDED_FIGURE_MIN_LINE_SPAN_RATIO = 0.28;
 export const GUIDED_FIGURE_MIN_LINE_SPAN_FLOOR = 5;
 export const GUIDED_FIGURE_CAPTION_EXTRA_SPAN_MAX = 3;
 
-export type GuidedLineType = 'body' | 'heading' | 'blank' | 'figure';
+export type GuidedLineType = 'body' | 'heading' | 'blank' | 'figure' | 'code' | 'table';
 
 export interface GuidedLine {
   text: string;
@@ -18,6 +20,9 @@ export interface GuidedLine {
   level?: number;  // 1-6 for headings
   figureSrc?: string;
   figureCaption?: string;
+  /** Table lines: the first line of a row, and rows in the table's header. */
+  rowStart?: boolean;
+  tableHeader?: boolean;
 }
 
 /**
@@ -125,33 +130,8 @@ function detectHeading(line: string): { isHeading: boolean; level: number; text:
  * Word-wrap a paragraph into lines of specified width.
  */
 function wrapParagraph(text: string, lineWidth: number): GuidedLine[] {
-  const words = text.split(/\s+/).filter(w => w.length > 0);
-  const lines: GuidedLine[] = [];
-  let currentLine = '';
-
-  for (const word of words) {
-    const wouldBe = currentLine.length === 0 ? word : currentLine + ' ' + word;
-
-    if (wouldBe.length <= lineWidth) {
-      currentLine = wouldBe;
-    } else {
-      if (currentLine.length > 0) {
-        lines.push({ text: currentLine, type: 'body' });
-      }
-      if (word.length > lineWidth) {
-        lines.push({ text: word, type: 'body' });
-        currentLine = '';
-      } else {
-        currentLine = word;
-      }
-    }
-  }
-
-  if (currentLine.length > 0) {
-    lines.push({ text: currentLine, type: 'body' });
-  }
-
-  return lines;
+  // Words longer than the line (URLs, identifiers) are broken rather than clipped.
+  return wrapWords(text, lineWidth).map((line) => ({ text: line, type: 'body' }));
 }
 
 /**
@@ -160,10 +140,8 @@ function wrapParagraph(text: string, lineWidth: number): GuidedLine[] {
  * Collapses single newlines into spaces to reflow ragged extractions.
  */
 export function flowTextIntoLines(text: string, lineWidth: number): GuidedLine[] {
-  const normalized = normalizeText(text);
-
   // Split into blocks (paragraphs/headings separated by blank lines)
-  const blocks = normalized
+  const blocks = text
     .split(/\n\s*\n/)
     .map(b => b.trim())
     .filter(b => b.length > 0);
@@ -172,6 +150,20 @@ export function flowTextIntoLines(text: string, lineWidth: number): GuidedLine[]
 
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i]!;
+
+    // Code and tables keep their own line structure (see epub/content.ts).
+    const blockLines = block.split('\n');
+    const tableMarker = blockLines[0]!.match(/^\[TABLE (\d+)\]$/);
+    if (blockLines[0] === CODE_MARKER || (tableMarker && blockLines[0]!.startsWith(TABLE_MARKER))) {
+      lines.push(
+        ...(tableMarker
+          ? flowTable(Number(tableMarker[1]), blockLines.slice(1), lineWidth)
+          : flowCode(blockLines.slice(1), lineWidth)),
+      );
+      if (i < blocks.length - 1) lines.push({ text: '', type: 'blank' });
+      continue;
+    }
+
     const figureUrlMarker = block.match(FIGURE_URL_PATTERN);
 
     if (figureUrlMarker) {
@@ -210,7 +202,7 @@ export function flowTextIntoLines(text: string, lineWidth: number): GuidedLine[]
         lines.push({ text: '', type: 'blank' });
       }
       // Headings wrap like body text so they never overflow the line width.
-      for (const wrapped of wrapParagraph(heading.text, lineWidth)) {
+      for (const wrapped of wrapParagraph(normalizeText(heading.text), lineWidth)) {
         lines.push({ text: wrapped.text, type: 'heading', level: heading.level });
       }
       // Add blank line after heading
@@ -219,11 +211,12 @@ export function flowTextIntoLines(text: string, lineWidth: number): GuidedLine[]
       // If there's more content after the heading line, process it as a paragraph
       const restOfBlock = block.split('\n').slice(1).join(' ').trim();
       if (restOfBlock.length > 0) {
-        lines.push(...wrapParagraph(restOfBlock, lineWidth));
+        lines.push(...wrapParagraph(normalizeText(restOfBlock), lineWidth));
       }
     } else {
       // Regular paragraph - collapse newlines into spaces and word wrap
-      const paragraph = block.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+      // normalizeText only touches prose: in code, `a.B` is not a sentence break.
+      const paragraph = normalizeText(block.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim());
       lines.push(...wrapParagraph(paragraph, lineWidth));
     }
 

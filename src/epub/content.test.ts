@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { xhtml } from '../../test/epub-builder';
-import { convertBody, segmentContent } from './content';
+import { CELL_SEPARATOR, EMPTY_CODE_LINE, SPANNED_CELL, convertBody, segmentContent } from './content';
 import { bodyOf, parseXhtml } from './xml';
 
 function convert(html: string, images: string[] = []) {
@@ -35,13 +35,14 @@ describe('convertBody', () => {
   });
 
   test('keeps the caption of an image-less figure as text', () => {
-    expect(content('<figure><figcaption>Listing 1</figcaption><pre>code</pre></figure>')).toBe('code\n\nListing 1');
+    expect(content('<figure><figcaption>Listing 1</figcaption><pre>code</pre></figure>')).toBe('[CODE]\ncode\n\nListing 1');
   });
 
   test('drops page-break markers and note references', () => {
     expect(content('<p>Before<span epub:type="pagebreak">23</span> after<a epub:type="noteref">1</a>.</p>')).toBe(
       'Before after.',
     );
+    expect(content('<p>repeated<sup><a data-type="noteref" href="#n">a</a></sup> text.</p>')).toBe('repeated text.');
   });
 
   test('drops linked superscript footnote markers but keeps exponents', () => {
@@ -59,6 +60,40 @@ describe('convertBody', () => {
 
   test('renders horizontal rules as scene breaks', () => {
     expect(content('<p>a</p><hr/><p>b</p>')).toBe('a\n\n* * *\n\nb');
+  });
+
+  test('keeps code line breaks and indentation, with callout images as numbers', () => {
+    expect(
+      content(
+        '<pre data-type="programlisting">\n<code>def f(x):</code>\n\n\treturn x.Upper()  <a class="co"><img src="1.png" alt="1" width="12"/></a>\n</pre>',
+        ['1.png'],
+      ),
+    ).toBe(`[CODE]\ndef f(x):\n${EMPTY_CODE_LINE}\n    return x.Upper()  (1)`);
+  });
+
+  test('joins a callout number to its explanation and keeps long terms apart', () => {
+    expect(
+      content('<dl><dt><a><img src="1.png" alt="1" width="12"/></a></dt><dd><p>x is kept.</p></dd><dt>A longer term</dt><dd>Defined.</dd></dl>', ['1.png']),
+    ).toBe('(1) x is kept.\n\nA longer term\n\nDefined.');
+  });
+
+  test('treats small images as inline icons rather than figures', () => {
+    expect(content('<p>Note <img src="i.png" width="16" height="16" alt="warning"/> this.</p>', ['i.png'])).toBe('Note this.');
+  });
+
+  test('keeps tables as rows of cells after their caption', () => {
+    const S = CELL_SEPARATOR;
+    expect(
+      content(
+        '<table><caption>Table 1. Names</caption><thead><tr><th>Kind</th><th>Names</th></tr></thead>' +
+          '<tbody><tr><td><p>Strings</p></td><td><p><code>__repr__  __str__</code></p></td></tr>' +
+          '<tr><td colspan="2">Both</td></tr><tr><td></td><td></td></tr></tbody></table>',
+      ),
+    ).toBe(`Table 1. Names\n\n[TABLE 1]\nKind${S}Names\nStrings${S}__repr__ __str__\nBoth${S}${SPANNED_CELL}`);
+  });
+
+  test('reads one-column tables as ordinary content', () => {
+    expect(content('<table><tr><td><p>Boxed</p><p>text</p></td></tr></table>')).toBe('Boxed\n\ntext');
   });
 
   test('splits into titled segments at split points', () => {

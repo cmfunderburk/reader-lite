@@ -19,6 +19,8 @@ export interface BookRecord {
   chapters: ChapterSummary[];
   /** Pacer WPM remembered for this book (M2). */
   wpm?: number;
+  /** PARSER_VERSION the content was produced by; missing means 1. */
+  parserVersion?: number;
 }
 
 export interface ChapterRecord {
@@ -136,6 +138,23 @@ export function saveBook(
     for (const chapter of chapters) tx.objectStore('chapters').put(chapter);
     for (const asset of assets) tx.objectStore('assets').put(asset);
     tx.objectStore('files').put(file);
+  });
+}
+
+export function getFile(bookId: string): Promise<FileRecord | undefined> {
+  return transaction(['files'], 'readonly', (tx) =>
+    promisify(tx.objectStore('files').get(bookId) as IDBRequest<FileRecord | undefined>),
+  );
+}
+
+/** Replace a book's record, chapters and assets after re-parsing its file. */
+export function replaceBookContent(book: BookRecord, chapters: ChapterRecord[], assets: AssetRecord[]): Promise<void> {
+  return transaction(['books', 'chapters', 'assets'], 'readwrite', (tx) => {
+    tx.objectStore('chapters').delete(bookRange(book.id));
+    tx.objectStore('assets').delete(bookRange(book.id));
+    tx.objectStore('books').put(book);
+    for (const chapter of chapters) tx.objectStore('chapters').put(chapter);
+    for (const asset of assets) tx.objectStore('assets').put(asset);
   });
 }
 

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { WPM_STEP, clampWpm } from '../pacer';
+import { isOutdated, reparseBook } from '../library/importEpub';
 import { navigate } from '../route';
 import { useSettings, type ReadingMode } from '../settings';
 import {
@@ -48,6 +49,7 @@ export function ReaderView({ bookId }: { bookId: string }) {
   const [toolbars, setToolbars] = useState(false);
   // Generation mode: show the page unmasked until it's turned.
   const [revealed, setRevealed] = useState(false);
+  const [updating, setUpdating] = useState(false);
   const [sheet, setSheet] = useState<'toc' | 'settings' | null>(null);
 
   const pageAreaRef = useRef<HTMLDivElement>(null);
@@ -56,8 +58,14 @@ export function ReaderView({ bookId }: { bookId: string }) {
   // Load the book and where we left off.
   useEffect(() => {
     void (async () => {
-      const found = await getBook(bookId);
+      let found = await getBook(bookId);
       if (!found) return setBook(null);
+      if (isOutdated(found)) {
+        // Imported by an older parser: rebuild from the stored file first.
+        setUpdating(true);
+        found = await reparseBook(found).catch(() => found!);
+        setUpdating(false);
+      }
       const saved = await getPosition(bookId);
       setBook(found);
       setWpm(found.wpm ?? settings.defaultWpm);
@@ -235,6 +243,7 @@ export function ReaderView({ bookId }: { bookId: string }) {
   return (
     <main className="reader">
       <div className="page-area" ref={pageAreaRef} {...gestures}>
+        {updating && <p className="reader-note">Updating this book for the new version…</p>}
         {page && metrics && (
           <div
             className="page"
