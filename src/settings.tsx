@@ -1,8 +1,10 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { DEFAULT_WPM } from './pacer';
+import type { GenerationDifficulty } from './reader/generationMask';
 import { getSetting, putSetting } from './store/db';
 
 export type Theme = 'system' | 'light' | 'dark';
+export type ReadingMode = 'guided' | 'generation';
 
 export interface Settings {
   fontSize: number;
@@ -14,6 +16,10 @@ export interface Settings {
   quietSweep: boolean;
   /** WPM for books that don't have their own yet. */
   defaultWpm: number;
+  mode: ReadingMode;
+  generationDifficulty: GenerationDifficulty;
+  /** In Generation mode, unmask each line as the sweep passes. */
+  sweepReveal: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -24,6 +30,9 @@ export const DEFAULT_SETTINGS: Settings = {
   saccadeLength: 10,
   quietSweep: false,
   defaultWpm: DEFAULT_WPM,
+  mode: 'guided',
+  generationDifficulty: 'normal',
+  sweepReveal: true,
 };
 
 export const FONT_SIZE_RANGE = { min: 12, max: 26 } as const;

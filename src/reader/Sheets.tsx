@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { FONT_SIZE_RANGE, SACCADE_RANGE, useSettings, type Theme } from '../settings';
+import type { GenerationDifficulty } from './generationMask';
 import type { ChapterSummary } from '../store/db';
 
 function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
@@ -76,6 +77,23 @@ function Toggle({ checked, onChange }: { checked: boolean; onChange: (checked: b
 }
 
 const THEMES: Array<[Theme, string]> = [['system', 'System'], ['light', 'Light'], ['dark', 'Dark']];
+const DIFFICULTIES: Array<[GenerationDifficulty, string]> = [['normal', 'Normal'], ['hard', 'Hard'], ['recall', 'Recall']];
+
+function Segmented<T extends string>({ options, value, onChange }: {
+  options: Array<[T, string]>;
+  value: T;
+  onChange: (value: T) => void;
+}) {
+  return (
+    <div className="segmented">
+      {options.map(([option, label]) => (
+        <button key={option} className={value === option ? 'selected' : ''} onClick={() => onChange(option)}>
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export function SettingsSheet({ onClose }: { onClose: () => void }) {
   const [settings, update] = useSettings();
@@ -93,17 +111,7 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
       </div>
       <div className="setting">
         <span>Theme</span>
-        <div className="segmented">
-          {THEMES.map(([theme, label]) => (
-            <button
-              key={theme}
-              className={settings.theme === theme ? 'selected' : ''}
-              onClick={() => update({ theme })}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <Segmented options={THEMES} value={settings.theme} onChange={(theme) => update({ theme })} />
       </div>
       <div className="setting">
         <span>OVP fixation marks</span>
@@ -125,6 +133,22 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
       <div className="setting">
         <span>Quiet sweep</span>
         <Toggle checked={settings.quietSweep} onChange={(quietSweep) => update({ quietSweep })} />
+      </div>
+      <h3 className="setting-group">Generation</h3>
+      <div className="setting">
+        <span>Masking</span>
+        <Segmented
+          options={DIFFICULTIES}
+          value={settings.generationDifficulty}
+          onChange={(generationDifficulty) => update({ generationDifficulty })}
+        />
+      </div>
+      <p className="setting-note">
+        Normal hides up to a quarter of a word's letters, Hard up to 40%, Recall all but the first and last.
+      </p>
+      <div className="setting">
+        <span>Reveal behind the sweep</span>
+        <Toggle checked={settings.sweepReveal} onChange={(sweepReveal) => update({ sweepReveal })} />
       </div>
     </Sheet>
   );

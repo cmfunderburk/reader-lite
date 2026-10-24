@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { WPM_STEP, clampWpm } from '../pacer';
 import { navigate } from '../route';
-import { useSettings } from '../settings';
+import { useSettings, type ReadingMode } from '../settings';
 import {
   getBook,
   getChapter,
@@ -11,6 +11,7 @@ import {
   type BookRecord,
   type ChapterRecord,
 } from '../store/db';
+import { hashToUnitInterval } from './generationTokens';
 import { GuidedLine, type LineState } from './GuidedLine';
 import { isPacedLine, layoutChapter, pageIndexForOffset, type Page } from './layout';
 import { lineSpan } from './saccade';
@@ -35,7 +36,7 @@ function firstPacedLine(page: Page | undefined, from = 0): number {
 }
 
 export function ReaderView({ bookId }: { bookId: string }) {
-  const [settings] = useSettings();
+  const [settings, updateSettings] = useSettings();
   const [book, setBook] = useState<BookRecord | null>();
   const [position, setPosition] = useState<Position>();
   const [record, setRecord] = useState<ChapterRecord>();
@@ -45,6 +46,8 @@ export function ReaderView({ bookId }: { bookId: string }) {
   // Bumped to restart the active line's animation (new line, resync, new page).
   const [runId, setRunId] = useState(0);
   const [toolbars, setToolbars] = useState(false);
+  // Generation mode: show the page unmasked until it's turned.
+  const [revealed, setRevealed] = useState(false);
   const [sheet, setSheet] = useState<'toc' | 'settings' | null>(null);
 
   const pageAreaRef = useRef<HTMLDivElement>(null);
@@ -91,11 +94,19 @@ export function ReaderView({ bookId }: { bookId: string }) {
   const pageIndex = layout && position ? pageIndexForOffset(layout.pages, position.offset) : 0;
   const page = layout?.pages[pageIndex];
 
-  // A new page (turned, jumped to, or re-flowed) starts the pacer at its top.
+  // A new page (turned, jumped to, or re-flowed) starts the pacer at its top, masked.
   useEffect(() => {
     setPacerLine(Math.max(0, firstPacedLine(page)));
     setRunId((n) => n + 1);
+    setRevealed(false);
   }, [page]);
+
+  const generation = settings.mode === 'generation';
+  const maskSeed = useMemo(
+    () => (position ? Math.floor(hashToUnitInterval(`${bookId}|${position.chapter}`) * 2 ** 32) : 0),
+    [bookId, position?.chapter],
+  );
+  const setMode = useCallback((mode: ReadingMode) => updateSettings({ mode }), [updateSettings]);
 
   const lastChapter = (book?.chapters.length ?? 1) - 1;
 
@@ -174,12 +185,14 @@ export function ReaderView({ bookId }: { bookId: string }) {
       else if (event.key === '+' || event.key === '=') changeWpm(WPM_STEP);
       else if (event.key === '-') changeWpm(-WPM_STEP);
       else if (event.key === 'Escape') setPacer('off');
+      else if (event.key === 'g') setMode(generation ? 'guided' : 'generation');
+      else if (event.key === 'r' && generation) setRevealed((shown) => !shown);
       else return;
       event.preventDefault();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [sheet, turnPage, togglePlay, changeWpm]);
+  }, [sheet, turnPage, togglePlay, changeWpm, setMode, generation]);
 
   const gestures = usePageGestures({
     onTap: (zone) => {
@@ -244,6 +257,9 @@ export function ReaderView({ bookId }: { bookId: string }) {
                 alternateOvpColors={settings.alternateOvpColors}
                 saccadeLength={settings.saccadeLength}
                 quietSweep={settings.quietSweep}
+                maskDifficulty={generation && !revealed ? settings.generationDifficulty : null}
+                maskSeed={maskSeed}
+                sweepReveal={settings.sweepReveal && pacerOn}
                 figureHeight={lineSpan(line, metrics.linesPerPage, metrics.charsPerLine) * metrics.lineHeight}
                 onDone={onLineDone}
               />
@@ -279,6 +295,28 @@ export function ReaderView({ bookId }: { bookId: string }) {
             <RepeatButton label="−" ariaLabel="Slower" onStep={() => changeWpm(-WPM_STEP)} />
             <span className="wpm">{wpm} WPM</span>
             <RepeatButton label="+" ariaLabel="Faster" onStep={() => changeWpm(WPM_STEP)} />
+            <div className="segmented" role="radiogroup" aria-label="Reading mode">
+              {MODES.map(([mode, label]) => (
+                <button
+                  key={mode}
+                  role="radio"
+                  aria-checked={settings.mode === mode}
+                  className={settings.mode === mode ? 'selected' : ''}
+                  onClick={() => setMode(mode)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {generation && (
+              <button
+                className={`button${revealed ? ' primary' : ''}`}
+                aria-pressed={revealed}
+                onClick={() => setRevealed((shown) => !shown)}
+              >
+                Reveal
+              </button>
+            )}
           </div>
         </>
       )}
@@ -299,6 +337,8 @@ export function ReaderView({ bookId }: { bookId: string }) {
     </main>
   );
 }
+
+const MODES: Array<[ReadingMode, string]> = [['guided', 'Guided'], ['generation', 'Generation']];
 
 /** A button that repeats while held, for stepping WPM. */
 function RepeatButton({ label, ariaLabel, onStep }: { label: string; ariaLabel: string; onStep: () => void }) {
