@@ -1,0 +1,5 @@
+[install]
+# Pin exact versions instead of ^ranges.
+exact = true
+# Supply-chain delay: never install a version published less than 7 days ago.
+minimumReleaseAge = 604800

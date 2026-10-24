@@ -1,0 +1,122 @@
+:root {
+  --bg: #fbfaf7;
+  --fg: #1d1d1b;
+  --muted: #6b6a66;
+  --border: #dddbd5;
+  --sweep: rgb(40 110 220 / 0.22);
+  --sweep-quiet: rgb(40 110 220 / 0.08);
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161615;
+    --fg: #e4e2dc;
+    --muted: #9a988f;
+    --border: #34332f;
+    --sweep: rgb(110 160 255 / 0.25);
+    --sweep-quiet: rgb(110 160 255 / 0.09);
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  -webkit-text-size-adjust: 100%;
+}
+
+.reader {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+  padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+    max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+}
+
+.page {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+  max-width: 82ch;
+  width: 100%;
+  margin: 0 auto;
+  font: 18px/1.7 var(--mono);
+}
+
+.line {
+  position: relative;
+  white-space: pre;
+  min-height: 1.7em;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.sweep {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* A full-width bar slides in from the left. Animating transform keeps it on the
+   compositor, and translating (rather than scaling) keeps the leading edge crisp. */
+.sweep-bar {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to right, transparent, var(--sweep));
+  border-right: 2px solid var(--sweep);
+  transform: translateX(-100%);
+  animation-name: sweep;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+.sweep.quiet .sweep-bar {
+  background: linear-gradient(to right, transparent, var(--sweep-quiet));
+  border-right-color: var(--sweep-quiet);
+}
+
+@keyframes sweep {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+.controls {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.controls button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 14px;
+  font: 16px var(--mono);
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.controls button.primary {
+  min-width: 96px;
+  border-color: var(--fg);
+}
+
+.wpm {
+  min-width: 9ch;
+  text-align: center;
+  font: 16px var(--mono);
+  color: var(--muted);
+}
