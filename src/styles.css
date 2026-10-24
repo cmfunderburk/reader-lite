@@ -6,10 +6,10 @@
   --border: #dddbd5;
   --accent: #2a64c5;
   --danger: #b3261e;
-  --ovp: #84470f;
-  --ovp-alt: #1f6f78;
+  --ovp: #c2410c;
+  --ovp-alt: #0e7490;
   --sweep: rgb(40 110 220 / 0.22);
-  --sweep-quiet: rgb(40 110 220 / 0.08);
+  --sweep-quiet: rgb(40 110 220 / 0.15);
   --backdrop: rgb(0 0 0 / 0.25);
   --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --reading-size: 16px;
@@ -25,10 +25,10 @@
     --border: #34332f;
     --accent: #7aa7ff;
     --danger: #ff8a80;
-    --ovp: #e0b038;
-    --ovp-alt: #4fc3c8;
+    --ovp: #ff7a45;
+    --ovp-alt: #3fb8e8;
     --sweep: rgb(110 160 255 / 0.25);
-    --sweep-quiet: rgb(110 160 255 / 0.09);
+    --sweep-quiet: rgb(110 160 255 / 0.16);
     --backdrop: rgb(0 0 0 / 0.5);
     color-scheme: dark;
   }
@@ -42,10 +42,10 @@
   --border: #34332f;
   --accent: #7aa7ff;
   --danger: #ff8a80;
-  --ovp: #e0b038;
-  --ovp-alt: #4fc3c8;
+  --ovp: #ff7a45;
+  --ovp-alt: #3fb8e8;
   --sweep: rgb(110 160 255 / 0.25);
-  --sweep-quiet: rgb(110 160 255 / 0.09);
+  --sweep-quiet: rgb(110 160 255 / 0.16);
   --backdrop: rgb(0 0 0 / 0.5);
   color-scheme: dark;
 }
@@ -236,7 +236,7 @@ button, select {
 
 .ovp {
   color: var(--ovp);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .ovp-alt {
