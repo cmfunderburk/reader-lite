@@ -1,0 +1,12 @@
+# Dev material (specs, plans) stays local
+docs/
+
+# Bun / build output
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Local env and OS cruft
+.env
+.env.*
+.DS_Store
