@@ -19,6 +19,8 @@ export interface BookRecord {
   chapters: ChapterSummary[];
   /** Pacer WPM remembered for this book (M2). */
   wpm?: number;
+  /** What the stored file is; missing means an EPUB. */
+  format?: 'epub' | 'markdown';
   /** PARSER_VERSION the content was produced by; missing means 1. */
   parserVersion?: number;
 }

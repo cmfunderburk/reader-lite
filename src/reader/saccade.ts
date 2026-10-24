@@ -4,7 +4,7 @@
 // asset-base figure URLs. Page grouping takes the current line width instead
 // of the fixed GUIDED_LINE_WIDTH.
 
-import { CODE_MARKER, TABLE_MARKER } from '../epub/content';
+import { CALLOUT_END, CODE_MARKER, LIST_MARKER, TABLE_MARKER } from '../epub/content';
 import { flowCode, flowTable, wrapWords } from './blocks';
 import { calculateORP, normalizeText, wordPenalty } from './tokenizer';
 
@@ -12,7 +12,7 @@ export const GUIDED_FIGURE_MIN_LINE_SPAN_RATIO = 0.28;
 export const GUIDED_FIGURE_MIN_LINE_SPAN_FLOOR = 5;
 export const GUIDED_FIGURE_CAPTION_EXTRA_SPAN_MAX = 3;
 
-export type GuidedLineType = 'body' | 'heading' | 'blank' | 'figure' | 'code' | 'table';
+export type GuidedLineType = 'body' | 'heading' | 'blank' | 'figure' | 'code' | 'table' | 'toggle';
 
 export interface GuidedLine {
   text: string;
@@ -23,6 +23,14 @@ export interface GuidedLine {
   /** Table lines: the first line of a row, and rows in the table's header. */
   rowStart?: boolean;
   tableHeader?: boolean;
+  /** Callout nesting level; the text is indented two columns per level. */
+  depth?: number;
+  /** A callout's title line. */
+  calloutTitle?: boolean;
+  /** A collapsible callout's toggle line: its number in the chapter. */
+  toggleId?: number;
+  /** Characters counted toward offsets, when not the visible text's (toggle lines). */
+  chars?: number;
 }
 
 /**
@@ -139,7 +147,42 @@ function wrapParagraph(text: string, lineWidth: number): GuidedLine[] {
  * Respects paragraph breaks (double newlines) and markdown headings.
  * Collapses single newlines into spaces to reflow ragged extractions.
  */
-export function flowTextIntoLines(text: string, lineWidth: number): GuidedLine[] {
+export interface FlowOptions {
+  /** Callouts (numbered in chapter order) whose open/closed state the reader flipped. */
+  toggled?: ReadonlySet<number>;
+}
+
+interface OpenCallout {
+  open: boolean;
+  /** Index in the output of its toggle line, if collapsible. */
+  toggleAt: number;
+  /** Index in the output where its content starts. */
+  contentAt: number;
+}
+
+const CALLOUT_PATTERN = /^\[CALLOUT (\w+) ([-+.])\](.*)$/;
+const INDENT = '  ';
+
+/** A list item with a hanging indent: continuation lines align after the bullet. */
+function flowListItem(item: string, width: number): GuidedLine[] {
+  const match = item.match(/^( *)(\S+) (.*)$/);
+  if (!match) return wrapParagraph(item, width);
+  const lead = match[1]! + match[2]! + ' ';
+  const room = width - lead.length;
+  if (room < 12) return wrapParagraph(item.trim(), width);
+  return wrapWords(normalizeText(match[3]!), room).map((text, i) => ({
+    text: (i === 0 ? lead : ' '.repeat(lead.length)) + text,
+    type: 'body',
+  }));
+}
+
+/**
+ * Flow a chapter's content into lines of at most `lineWidth` characters.
+ * Callout content is indented two columns per level (`depth`). A collapsed
+ * callout shows only its toggle line, which counts the hidden content's
+ * characters (`chars`) so positions don't move when it opens or closes.
+ */
+export function flowTextIntoLines(text: string, lineWidth: number, options: FlowOptions = {}): GuidedLine[] {
   // Split into blocks (paragraphs/headings separated by blank lines)
   const blocks = text
     .split(/\n\s*\n/)
@@ -147,25 +190,85 @@ export function flowTextIntoLines(text: string, lineWidth: number): GuidedLine[]
     .filter(b => b.length > 0);
 
   const lines: GuidedLine[] = [];
+  const stack: OpenCallout[] = [];
+  let calloutCount = 0;
+  let afterTitle = false;
+
+  const depth = () => stack.length;
+  const push = (...added: GuidedLine[]) => {
+    const d = depth();
+    for (const line of added) {
+      lines.push(
+        d === 0
+          ? line
+          : { ...line, depth: d, text: line.type === 'figure' || !line.text ? line.text : INDENT.repeat(d) + line.text },
+      );
+    }
+  };
+  const blank = () => {
+    if (lines.length > 0 && lines[lines.length - 1]!.type !== 'blank') push({ text: '', type: 'blank' });
+  };
 
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i]!;
+    const width = Math.max(10, lineWidth - INDENT.length * depth());
+    const blockLines = block.split('\n');
+    const first = blockLines[0]!;
+
+    const callout = first.match(CALLOUT_PATTERN);
+    if (callout) {
+      const [, , fold, rawTitle] = callout;
+      const id = calloutCount++;
+      const title = rawTitle!.trim();
+      const flipped = options.toggled?.has(id) ?? false;
+      const open = fold === '.' || (fold === '+') !== flipped;
+      blank();
+      const entry: OpenCallout = { open: true, toggleAt: -1, contentAt: 0 };
+      stack.push(entry);
+      if (fold !== '.') {
+        entry.toggleAt = lines.length;
+        push({ text: `${open ? '▾' : '▸'} ${title}`, type: 'toggle', toggleId: id, chars: visibleChars(title) });
+      } else if (title) {
+        push(...wrapParagraph(normalizeText(title), width).map((line) => ({ ...line, calloutTitle: true })));
+      }
+      entry.open = open;
+      entry.contentAt = lines.length;
+      afterTitle = fold === '.' ? !!title : true;
+      continue;
+    }
+
+    if (first === CALLOUT_END) {
+      const entry = stack.pop();
+      if (entry && !entry.open && entry.toggleAt >= 0) {
+        // Hidden content still counts toward positions, through the toggle line.
+        const hidden = lines.splice(entry.contentAt);
+        const toggle = lines[entry.toggleAt]!;
+        toggle.chars = (toggle.chars ?? 0) + hidden.reduce((sum, line) => sum + lineChars(line), 0);
+      }
+      afterTitle = false;
+      continue;
+    }
+
+    if (!afterTitle) blank();
+    afterTitle = false;
 
     // Code and tables keep their own line structure (see epub/content.ts).
-    const blockLines = block.split('\n');
-    const tableMarker = blockLines[0]!.match(/^\[TABLE (\d+)\]$/);
-    if (blockLines[0] === CODE_MARKER || (tableMarker && blockLines[0]!.startsWith(TABLE_MARKER))) {
-      lines.push(
+    const tableMarker = first.match(/^\[TABLE (\d+)\]$/);
+    if (first === CODE_MARKER || (tableMarker && first.startsWith(TABLE_MARKER))) {
+      push(
         ...(tableMarker
-          ? flowTable(Number(tableMarker[1]), blockLines.slice(1), lineWidth)
-          : flowCode(blockLines.slice(1), lineWidth)),
+          ? flowTable(Number(tableMarker[1]), blockLines.slice(1), width)
+          : flowCode(blockLines.slice(1), width)),
       );
-      if (i < blocks.length - 1) lines.push({ text: '', type: 'blank' });
+      continue;
+    }
+
+    if (first === LIST_MARKER) {
+      push(...blockLines.slice(1).flatMap((item) => flowListItem(item, width)));
       continue;
     }
 
     const figureUrlMarker = block.match(FIGURE_URL_PATTERN);
-
     if (figureUrlMarker) {
       const figureSrc = figureUrlMarker[1]!.trim();
       let figureCaption: string | undefined;
@@ -179,57 +282,49 @@ export function flowTextIntoLines(text: string, lineWidth: number): GuidedLine[]
         }
       }
 
-      lines.push({
+      push({
         text: figureCaption || 'Figure',
         type: 'figure',
         figureSrc,
         figureCaption,
       });
-
-      if (i < blocks.length - 1 && lines.length > 0 && lines[lines.length - 1]!.type !== 'blank') {
-        lines.push({ text: '', type: 'blank' });
-      }
       continue;
     }
 
     // Check if first line is a heading
-    const firstLine = block.split('\n')[0]!.trim();
-    const heading = detectHeading(firstLine);
+    const heading = detectHeading(first.trim());
 
     if (heading.isHeading) {
-      // Add blank line before heading (if not first)
-      if (lines.length > 0 && lines[lines.length - 1]!.type !== 'blank') {
-        lines.push({ text: '', type: 'blank' });
-      }
       // Headings wrap like body text so they never overflow the line width.
-      for (const wrapped of wrapParagraph(normalizeText(heading.text), lineWidth)) {
-        lines.push({ text: wrapped.text, type: 'heading', level: heading.level });
+      for (const wrapped of wrapParagraph(normalizeText(heading.text), width)) {
+        push({ text: wrapped.text, type: 'heading', level: heading.level });
       }
-      // Add blank line after heading
-      lines.push({ text: '', type: 'blank' });
-
       // If there's more content after the heading line, process it as a paragraph
-      const restOfBlock = block.split('\n').slice(1).join(' ').trim();
+      const restOfBlock = blockLines.slice(1).join(' ').trim();
       if (restOfBlock.length > 0) {
-        lines.push(...wrapParagraph(normalizeText(restOfBlock), lineWidth));
+        blank();
+        push(...wrapParagraph(normalizeText(restOfBlock), width));
       }
     } else {
-      // Regular paragraph - collapse newlines into spaces and word wrap
+      // Regular paragraph - collapse newlines into spaces and word wrap.
       // normalizeText only touches prose: in code, `a.B` is not a sentence break.
       const paragraph = normalizeText(block.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim());
-      lines.push(...wrapParagraph(paragraph, lineWidth));
-    }
-
-    // Add blank line between blocks (not after last)
-    if (i < blocks.length - 1) {
-      // Only add if last line isn't already blank
-      if (lines.length > 0 && lines[lines.length - 1]!.type !== 'blank') {
-        lines.push({ text: '', type: 'blank' });
-      }
+      push(...wrapParagraph(paragraph, width));
     }
   }
 
   return lines;
+}
+
+/** Characters a line contributes to chapter offsets (see reader/layout.ts). */
+export function lineChars(line: GuidedLine): number {
+  return line.chars ?? visibleChars(line.text);
+}
+
+export function visibleChars(text: string): number {
+  let count = 0;
+  for (const char of text) if (!/\s/.test(char)) count++;
+  return count;
 }
 
 /** Lines a figure reserves on a page: a base span plus room for a long caption. */

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { WPM_STEP, clampWpm } from '../pacer';
-import { isOutdated, reparseBook } from '../library/importEpub';
+import { isOutdated, reparseBook } from '../library/importBook';
 import { navigate } from '../route';
 import { useSettings, type ReadingMode } from '../settings';
 import {
@@ -50,6 +50,11 @@ export function ReaderView({ bookId }: { bookId: string }) {
   // Generation mode: show the page unmasked until it's turned.
   const [revealed, setRevealed] = useState(false);
   const [updating, setUpdating] = useState(false);
+  // Callouts the reader opened or closed, per chapter (see FlowOptions.toggled).
+  const [toggled, setToggled] = useState(() => new Map<number, ReadonlySet<number>>());
+  // Set when a toggle re-flows the page, so the pacer moves into what opened instead of the top.
+  const pendingToggle = useRef<number | null>(null);
+  const shownPage = useRef<string>('');
   const [sheet, setSheet] = useState<'toc' | 'settings' | null>(null);
 
   const pageAreaRef = useRef<HTMLDivElement>(null);
@@ -94,19 +99,34 @@ export function ReaderView({ bookId }: { bookId: string }) {
   }, [bookId, position]);
 
   // Layout is only valid once the loaded chapter matches the position.
+  const chapterToggles = position ? toggled.get(position.chapter) : undefined;
   const layout = useMemo(() => {
     if (!record || !metrics || record.index !== position?.chapter) return undefined;
-    return layoutChapter(record.content, metrics.charsPerLine, metrics.linesPerPage);
-  }, [record, metrics, position?.chapter]);
+    return layoutChapter(record.content, metrics.charsPerLine, metrics.linesPerPage, { toggled: chapterToggles });
+  }, [record, metrics, position?.chapter, chapterToggles]);
 
   const pageIndex = layout && position ? pageIndexForOffset(layout.pages, position.offset) : 0;
   const page = layout?.pages[pageIndex];
 
-  // A new page (turned, jumped to, or re-flowed) starts the pacer at its top, masked.
+  // A new page (turned, jumped to, or re-flowed) starts the pacer at its top,
+  // masked. Opening or closing a callout re-flows the same page instead: the
+  // pacer moves to the first line after the toggle.
   useEffect(() => {
-    setPacerLine(Math.max(0, firstPacedLine(page)));
+    if (!page) return;
+    const toggle = pendingToggle.current;
+    pendingToggle.current = null;
+    const key = `${position?.chapter}:${page.startOffset}:${metrics?.charsPerLine}:${metrics?.linesPerPage}`;
+    const samePage = key === shownPage.current;
+    shownPage.current = key;
+    if (toggle !== null && samePage) {
+      const next = firstPacedLine(page, toggle + 1);
+      setPacerLine(next >= 0 ? next : Math.max(0, firstPacedLine(page)));
+    } else {
+      setPacerLine(Math.max(0, firstPacedLine(page)));
+      setRevealed(false);
+    }
     setRunId((n) => n + 1);
-    setRevealed(false);
+    // position and metrics are read for the key; `page` changes whenever they matter.
   }, [page]);
 
   const generation = settings.mode === 'generation';
@@ -212,7 +232,19 @@ export function ReaderView({ bookId }: { bookId: string }) {
     onLongPress: (target) => {
       const lineEl = target?.closest<HTMLElement>('[data-line]');
       const index = Number(lineEl?.dataset.line ?? NaN);
-      if (!page || Number.isNaN(index) || !isPacedLine(page.lines[index]!)) return;
+      const line = page?.lines[index];
+      if (!line || !position) return;
+      if (line.toggleId !== undefined) {
+        const id = line.toggleId;
+        pendingToggle.current = index;
+        setToggled((all) => {
+          const next = new Set(all.get(position.chapter));
+          if (!next.delete(id)) next.add(id);
+          return new Map(all).set(position.chapter, next);
+        });
+        return;
+      }
+      if (!isPacedLine(line)) return;
       setPacerLine(index);
       setRunId((n) => n + 1);
       setPacer((state) => (state === 'off' ? 'paused' : state));

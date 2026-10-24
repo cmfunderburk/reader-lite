@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { maskGenerationLine } from './generationMask';
+import { maskCodeLine, maskGenerationLine } from './generationMask';
 
 function getWordTokens(line: string): string[] {
   return line.trim().split(/\s+/);
@@ -191,5 +191,26 @@ describe('generationMask', () => {
   it('handles empty and whitespace-only lines', () => {
     expect(maskGenerationLine('', 'normal', 1, 0)).toBe('');
     expect(maskGenerationLine('   ', 'normal', 1, 0)).toBe('   ');
+  });
+});
+
+describe('maskCodeLine', () => {
+  it('keeps keywords, punctuation and indentation, and masks identifiers part by part', () => {
+    const line = '    for item in update_regrets(table, row):';
+    const masked = maskCodeLine(line, 'normal', 7, 3);
+    expect(masked.length).toBe(line.length);
+    expect(masked.startsWith('    for ')).toBe(true);
+    expect(masked).toContain(' in ');
+    expect(masked).toContain('_');
+    expect(masked.replace(/_/g, '').length).toBeLessThan(line.replace(/_/g, '').length);
+    expect(masked.endsWith('):')).toBe(true);
+    // The snake_case underscore stays at its place.
+    expect(masked[line.indexOf('update_regrets') + 'update'.length]).toBe('_');
+  });
+
+  it('is deterministic and keeps first and last letters in recall', () => {
+    const line = 'SELECT customer_id FROM orders';
+    expect(maskCodeLine(line, 'hard', 1, 0)).toBe(maskCodeLine(line, 'hard', 1, 0));
+    expect(maskCodeLine(line, 'recall', 1, 0)).toBe('SELECT c______r_id FROM o____s');
   });
 });

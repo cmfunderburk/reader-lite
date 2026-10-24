@@ -11,6 +11,7 @@
   --sweep: rgb(40 110 220 / 0.22);
   --sweep-quiet: rgb(40 110 220 / 0.15);
   --backdrop: rgb(0 0 0 / 0.25);
+  --callout-bar: rgb(42 100 197 / 0.35);
   --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --reading-size: 16px;
   color-scheme: light;
@@ -30,6 +31,7 @@
     --sweep: rgb(110 160 255 / 0.25);
     --sweep-quiet: rgb(110 160 255 / 0.16);
     --backdrop: rgb(0 0 0 / 0.5);
+    --callout-bar: rgb(122 167 255 / 0.4);
     color-scheme: dark;
   }
 }
@@ -47,6 +49,7 @@
   --sweep: rgb(110 160 255 / 0.25);
   --sweep-quiet: rgb(110 160 255 / 0.16);
   --backdrop: rgb(0 0 0 / 0.5);
+  --callout-bar: rgb(122 167 255 / 0.4);
   color-scheme: dark;
 }
 
@@ -110,6 +113,11 @@ button, select {
   margin: 0;
   font-size: 22px;
   font-weight: 600;
+}
+
+.library-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .library-empty {
@@ -243,13 +251,32 @@ button, select {
 /* Code keeps its layout on a tinted band; the band runs past the text so
    indentation and wrapped continuations read as one block. */
 .line.code {
-  background: var(--bg-raised);
+  background-color: var(--bg-raised);
   margin: 0 -0.5ch;
   padding: 0 0.5ch;
+  --sweep-inset: 0.5ch;
 }
 
-.line.code .sweep {
-  left: 0.5ch;
+/* Callouts and quotes: a bar per nesting level, in the indentation. */
+.line.in-callout {
+  background-image: repeating-linear-gradient(to right, var(--callout-bar) 0 2px, transparent 2px 2ch);
+  background-size: calc(var(--depth) * 2ch) 100%;
+  background-repeat: no-repeat;
+}
+
+.line.code.in-callout {
+  background-position: 0.5ch 0;
+}
+
+.line.callout-title {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+/* A collapsed or collapsible callout (long-press to open or close). */
+.line.fold {
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .line.table.row-start {

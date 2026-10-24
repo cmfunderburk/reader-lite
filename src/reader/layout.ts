@@ -1,4 +1,6 @@
-import { flowTextIntoLines, groupIntoPages, type GuidedLine } from './saccade';
+import { flowTextIntoLines, groupIntoPages, lineChars, visibleChars, type FlowOptions, type GuidedLine } from './saccade';
+
+export { visibleChars };
 
 // Positions are counted in non-whitespace characters from the start of a
 // chapter. Line flow only changes whitespace, so an offset stays valid across
@@ -20,17 +22,16 @@ export interface ChapterLayout {
   totalChars: number;
 }
 
-export function visibleChars(text: string): number {
-  let count = 0;
-  for (const char of text) if (!/\s/.test(char)) count++;
-  return count;
-}
-
-export function layoutChapter(content: string, charsPerLine: number, linesPerPage: number): ChapterLayout {
+export function layoutChapter(
+  content: string,
+  charsPerLine: number,
+  linesPerPage: number,
+  options: FlowOptions = {},
+): ChapterLayout {
   let offset = 0;
-  const lines: PageLine[] = flowTextIntoLines(content, charsPerLine).map((line) => {
+  const lines: PageLine[] = flowTextIntoLines(content, charsPerLine, options).map((line) => {
     const placed = { ...line, offset };
-    offset += visibleChars(line.text);
+    offset += lineChars(line);
     return placed;
   });
 
@@ -51,7 +52,7 @@ export function pageIndexForOffset(pages: Page[], offset: number): number {
   return index;
 }
 
-/** Lines the pacer visits: everything with something to read (not spacers or empty code lines). */
+/** Lines the pacer visits: everything with something to read (not spacers, toggles or empty code lines). */
 export function isPacedLine(line: GuidedLine): boolean {
-  return line.type === 'figure' || (line.type !== 'blank' && line.text.trim() !== '');
+  return line.type === 'figure' || (line.type !== 'blank' && line.type !== 'toggle' && line.text.trim() !== '');
 }

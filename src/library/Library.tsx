@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { navigate } from '../route';
 import { deleteBook, listBooks, listPositions, type BookRecord, type PositionRecord } from '../store/db';
-import { importEpub, importErrorMessage } from './importEpub';
+import { groupImports, importErrorMessage, importSource } from './importBook';
+
+/** Folder picking, where the browser offers it (desktop; possibly not iPad). */
+const canPickFolders = typeof document !== 'undefined' && 'webkitdirectory' in document.createElement('input');
+const ACCEPT = '.epub,.zip,.md,.markdown,application/epub+zip,application/zip,text/markdown,image/*';
 
 interface ImportStatus {
   fileName: string;
@@ -23,6 +27,7 @@ export function Library() {
   const [statuses, setStatuses] = useState<ImportStatus[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const folderInput = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -39,14 +44,18 @@ export function Library() {
   }, [refresh]);
 
   const onFiles = async (files: FileList | null) => {
-    const list = Array.from(files ?? []);
+    const sources = groupImports(Array.from(files ?? []));
     if (fileInput.current) fileInput.current.value = '';
-    for (const file of list) {
+    if (folderInput.current) folderInput.current.value = '';
+    if (files?.length && sources.length === 0) {
+      setStatuses([{ fileName: files[0]!.name, state: 'failed', message: 'not an EPUB, a zip, or Markdown' }]);
+    }
+    for (const source of sources) {
       const update = (status: Omit<ImportStatus, 'fileName'>) =>
-        setStatuses((prev) => [...prev.filter((s) => s.fileName !== file.name), { fileName: file.name, ...status }]);
+        setStatuses((prev) => [...prev.filter((s) => s.fileName !== source.label), { fileName: source.label, ...status }]);
       update({ state: 'working' });
       try {
-        const result = await importEpub(file);
+        const result = await importSource(source);
         update({ state: result.duplicate ? 'duplicate' : 'done', message: result.book.title });
       } catch (err) {
         console.error(err);
@@ -68,14 +77,29 @@ export function Library() {
     <main className="library">
       <header className="library-header">
         <h1>Reader Lite</h1>
-        <button className="button primary" onClick={() => fileInput.current?.click()}>
-          Add EPUB
-        </button>
+        <div className="library-actions">
+          {canPickFolders && (
+            <button className="button" onClick={() => folderInput.current?.click()}>
+              Add folder
+            </button>
+          )}
+          <button className="button primary" onClick={() => fileInput.current?.click()}>
+            Add book
+          </button>
+        </div>
         <input
           ref={fileInput}
           type="file"
-          accept=".epub,application/epub+zip"
+          accept={ACCEPT}
           multiple
+          hidden
+          onChange={(event) => void onFiles(event.target.files)}
+        />
+        <input
+          ref={folderInput}
+          type="file"
+          // @ts-expect-error: non-standard, but in every current browser engine
+          webkitdirectory=""
           hidden
           onChange={(event) => void onFiles(event.target.files)}
         />
@@ -108,7 +132,7 @@ export function Library() {
         </section>
       )}
 
-      {books?.length === 0 && <p className="library-empty">No books yet. Add an EPUB from Files to get started.</p>}
+      {books?.length === 0 && <p className="library-empty">No books yet. Add an EPUB, or Markdown notes (a zipped folder or several .md files), from Files.</p>}
 
       <ul className="book-list">
         {books?.map((book) => (

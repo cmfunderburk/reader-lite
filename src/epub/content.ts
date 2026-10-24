@@ -34,6 +34,15 @@ export const CELL_SEPARATOR = '\u001f';
 export const EMPTY_CODE_LINE = '\u001e';
 /** Fills the columns a spanning (colspan) cell covers after its first. */
 export const SPANNED_CELL = '\u001d';
+/** A list: one item per line, `<indent><bullet> <text>`. */
+export const LIST_MARKER = '[LIST]';
+/**
+ * A callout (or quote) wraps the blocks between `[CALLOUT <type> <fold>]<title>`
+ * and `[/CALLOUT]`. Fold is `-` (collapsed), `+` (expanded, collapsible) or
+ * `.` (always open).
+ */
+export const CALLOUT_START = '[CALLOUT ';
+export const CALLOUT_END = '[/CALLOUT]';
 
 const TAB_WIDTH = 4;
 /** A <dt> this short is a callout number or bullet, joined to its <dd>. */
@@ -54,7 +63,7 @@ const HEADINGS = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']);
 const SKIPPED_EPUB_TYPES = new Set(['pagebreak', 'noteref']);
 
 // Text that would otherwise be read as a heading or a marker by the line flow.
-const MARKUP_LOOKALIKE = /^(#{1,6}\s|\[(FIGURE|EQN_|CODE\]|TABLE))/i;
+const MARKUP_LOOKALIKE = /^(#{1,6}\s|\[(FIGURE|EQN_|CODE\]|TABLE|LIST\]|CALLOUT|\/CALLOUT))/i;
 
 export function convertBody(body: Element, options: ConvertOptions): ContentSegment[] {
   return new Converter(options).run(body);
@@ -98,6 +107,31 @@ function preformattedText(node: Node): string {
     }
   }
   return out;
+}
+
+/** Text that would be read as a heading or a marker, made safe with a zero-width prefix. */
+export function guardMarkup(text: string): string {
+  return MARKUP_LOOKALIKE.test(text) ? `\u200b${text}` : text;
+}
+
+/** A code block from preformatted text, or undefined if it's empty. */
+export function codeBlock(text: string): string | undefined {
+  const lines = text
+    .replace(/\r\n?/g, '\n')
+    .replace(/\u00a0/g, ' ')
+    .split('\n')
+    .map((line) => expandTabs(line).trimEnd());
+  while (lines.length > 0 && !lines[0]) lines.shift();
+  while (lines.length > 0 && !lines[lines.length - 1]) lines.pop();
+  if (lines.length === 0) return undefined;
+  return [CODE_MARKER, ...lines.map((line) => line || EMPTY_CODE_LINE)].join('\n');
+}
+
+/** A table block from rows of cell texts, or undefined if there are no rows. */
+export function tableBlock(headerRows: number, rows: string[][]): string | undefined {
+  if (rows.length === 0) return undefined;
+  const clean = (cell: string) => (cell === SPANNED_CELL ? cell : cell.replace(/[\u001d-\u001f\n]/g, ' '));
+  return [`${TABLE_MARKER} ${headerRows}]`, ...rows.map((row) => row.map(clean).join(CELL_SEPARATOR))].join('\n');
 }
 
 function closestTable(el: Element): Element | null {
@@ -251,15 +285,8 @@ class Converter {
   private preformatted(el: Element): void {
     this.flushInline();
     this.flushTerm();
-    const lines = preformattedText(el)
-      .replace(/\r\n?/g, '\n')
-      .replace(/\u00a0/g, ' ')
-      .split('\n')
-      .map((line) => expandTabs(line).trimEnd());
-    while (lines.length > 0 && !lines[0]) lines.shift();
-    while (lines.length > 0 && !lines[lines.length - 1]) lines.pop();
-    if (lines.length === 0) return;
-    this.current.blocks.push([CODE_MARKER, ...lines.map((line) => line || EMPTY_CODE_LINE)].join('\n'));
+    const block = codeBlock(preformattedText(el));
+    if (block) this.current.blocks.push(block);
   }
 
   private table(el: Element): void {
@@ -286,7 +313,7 @@ class Converter {
 
     let headerRows = 0;
     let inHeader = true;
-    const lines: string[] = [];
+    const lines: string[][] = [];
     for (const row of rows) {
       const cells = cellsOf(row);
       const isHeader = localName(row.parentElement!) === 'thead' || cells.every((cell) => localName(cell) === 'th');
@@ -299,9 +326,10 @@ class Converter {
       if (texts.every((text) => !text || text === SPANNED_CELL)) continue;
       if (inHeader && isHeader) headerRows++;
       else inHeader = false;
-      lines.push(texts.join(CELL_SEPARATOR));
+      lines.push(texts);
     }
-    if (lines.length > 0) this.current.blocks.push([`${TABLE_MARKER} ${headerRows}]`, ...lines].join('\n'));
+    const block = tableBlock(headerRows, lines);
+    if (block) this.current.blocks.push(block);
   }
 
   /** A table cell flattened to one line of text. */
@@ -348,6 +376,6 @@ class Converter {
       text = `${this.pendingTerm} ${text}`;
       this.pendingTerm = undefined;
     }
-    this.current.blocks.push(MARKUP_LOOKALIKE.test(text) ? `​${text}` : text);
+    this.current.blocks.push(guardMarkup(text));
   }
 }

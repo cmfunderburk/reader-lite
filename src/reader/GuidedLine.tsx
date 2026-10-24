@@ -1,6 +1,6 @@
 import { memo, useMemo, type AnimationEvent, type CSSProperties, type ReactNode } from 'react';
 import type { PageLine } from './layout';
-import { maskGenerationLine, type GenerationDifficulty } from './generationMask';
+import { maskCodeLine, maskGenerationLine, type GenerationDifficulty } from './generationMask';
 import { calculateGuidedLineDuration, computeLineFixations } from './saccade';
 import { useAssetUrl } from './useAssetUrl';
 
@@ -38,8 +38,13 @@ interface GuidedLineProps {
   onDone: (index: number) => void;
 }
 
+/** Leading spaces (callout and list indentation, code indentation). */
+function indentOf(text: string): number {
+  return text.length - text.trimStart().length;
+}
+
 export function lineDurationMs(line: PageLine, wpm: number): number {
-  const duration = calculateGuidedLineDuration(line.text.length, wpm);
+  const duration = calculateGuidedLineDuration(line.text.trim().length, wpm);
   return line.type === 'figure' ? Math.max(MIN_FIGURE_DWELL_MS, duration) : duration;
 }
 
@@ -67,8 +72,11 @@ function renderText(text: string, options: TextOptions): ReactNode {
   if (ovp !== 'none') fixations.forEach((charIndex, i) => fixationOrdinal.set(charIndex, i));
   if (fixationOrdinal.size === 0 && !masked) return text;
 
+  // The sweep covers the text after its indentation.
+  const lead = indentOf(text);
+  const span = Math.max(1, text.length - lead);
   const timed = (charIndex: number): CSSProperties => ({
-    animationDelay: `${(charIndex / text.length) * durationMs}ms`,
+    animationDelay: `${((charIndex - lead) / span) * durationMs}ms`,
     animationPlayState: playing ? 'running' : 'paused',
   });
 
@@ -139,11 +147,14 @@ export const GuidedLine = memo(function GuidedLine({
     [isText, showOvp, line.text, saccadeLength],
   );
   // Seeded by the line's chapter offset, so a line masks the same way however
-  // the page is laid out around it.
-  const masked = useMemo(
-    () => (isText && maskDifficulty ? maskGenerationLine(line.text, maskDifficulty, maskSeed, line.offset) : null),
-    [isText, maskDifficulty, maskSeed, line.text, line.offset],
-  );
+  // the page is laid out around it. Code keeps its keywords and punctuation;
+  // tables mask like prose.
+  const masked = useMemo(() => {
+    if (!maskDifficulty) return null;
+    if (line.type === 'code') return maskCodeLine(line.text, maskDifficulty, maskSeed, line.offset);
+    if (isText || line.type === 'table') return maskGenerationLine(line.text, maskDifficulty, maskSeed, line.offset);
+    return null;
+  }, [isText, line.type, maskDifficulty, maskSeed, line.text, line.offset]);
 
   const active = state === 'active';
   const durationMs = active ? lineDurationMs(line, wpm) : 0;
@@ -152,7 +163,18 @@ export const GuidedLine = memo(function GuidedLine({
     if (event.animationName === 'sweep' || event.animationName === 'pacer-dwell') onDone(index);
   };
 
-  if (line.type === 'blank') return <div className="line" data-line={index} />;
+  const depthClass = line.depth ? ' in-callout' : '';
+  const depthStyle = line.depth ? ({ '--depth': line.depth } as CSSProperties) : undefined;
+
+  if (line.type === 'blank') return <div className={`line${depthClass}`} data-line={index} style={depthStyle} />;
+
+  if (line.type === 'toggle') {
+    return (
+      <div className={`line fold${depthClass}`} data-line={index} style={depthStyle}>
+        {line.text}
+      </div>
+    );
+  }
 
   if (line.type === 'figure') {
     return (
@@ -175,13 +197,23 @@ export const GuidedLine = memo(function GuidedLine({
 
   const ovp = !showOvp || state === 'behind' ? 'none' : active ? 'passing' : 'static';
   const keepMasked = masked !== null && masked !== line.text && !(sweepReveal && state === 'behind');
+  const lead = indentOf(line.text);
+  const classes = [
+    'line',
+    line.type,
+    line.rowStart && 'row-start',
+    line.tableHeader && 'table-header',
+    line.calloutTitle && 'callout-title',
+    line.depth && 'in-callout',
+  ].filter(Boolean).join(' ');
   return (
-    <div
-      className={`line ${line.type}${line.rowStart ? ' row-start' : ''}${line.tableHeader ? ' table-header' : ''}`}
-      data-line={index}
-    >
+    <div className={classes} data-line={index} style={depthStyle}>
       {active && durationMs > 0 && (
-        <span className={`sweep${quietSweep ? ' quiet' : ''}`} style={{ width: `${line.text.length}ch` }} onAnimationEnd={finish}>
+        <span
+          className={`sweep${quietSweep ? ' quiet' : ''}`}
+          style={{ left: `calc(${lead}ch + var(--sweep-inset, 0px))`, width: `${line.text.length - lead}ch` }}
+          onAnimationEnd={finish}
+        >
           <span className="sweep-bar" style={{ animationDuration: `${durationMs}ms`, animationPlayState: playState }} />
         </span>
       )}

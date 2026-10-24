@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { CELL_SEPARATOR, EMPTY_CODE_LINE, SPANNED_CELL } from '../epub/content';
 import { flowCode, flowTable, wrapWords } from './blocks';
 import { layoutChapter, visibleChars } from './layout';
+import { flowTextIntoLines } from './saccade';
 
 const S = CELL_SEPARATOR;
 
@@ -73,4 +74,48 @@ test('code and tables keep chapter offsets independent of line width', () => {
 test('normalizeText leaves code alone', () => {
   const layout = layoutChapter('[CODE]\nx = collections.OrderedDict()', 80, 10);
   expect(layout.pages[0]!.lines[0]!.text).toBe('x = collections.OrderedDict()');
+});
+
+describe('callouts and lists', () => {
+  const content = [
+    'Intro.',
+    '[CALLOUT question .]Predict first',
+    'Where does the time go?',
+    '[CALLOUT answer -]Answer',
+    'The river, because its tables hold nearly all the entries.',
+    '[/CALLOUT]',
+    '[/CALLOUT]',
+    '[LIST]\n• first item that is long enough to wrap\n  ◦ nested',
+    'After.',
+  ].join('\n\n');
+
+  test('indents callout content, shows titles, and collapses folded callouts to a toggle', () => {
+    const lines = flowTextIntoLines(content, 30);
+    expect(lines.map((l) => [l.type, l.text, l.depth ?? 0])).toEqual([
+      ['body', 'Intro.', 0],
+      ['blank', '', 0],
+      ['body', '  Predict first', 1],
+      ['body', '  Where does the time go?', 1],
+      ['blank', '', 1],
+      ['toggle', '    ▸ Answer', 2],
+      ['blank', '', 0],
+      ['body', '• first item that is long', 0],
+      ['body', '  enough to wrap', 0],
+      ['body', '  ◦ nested', 0],
+      ['blank', '', 0],
+      ['body', 'After.', 0],
+    ]);
+    expect(lines[2]!.calloutTitle).toBe(true);
+  });
+
+  test('a toggled callout opens, and positions after it do not move', () => {
+    const closed = layoutChapter(content, 30, 50);
+    const open = layoutChapter(content, 30, 50, { toggled: new Set([1]) });
+    const text = (layout: typeof closed) => layout.pages.flatMap((p) => p.lines);
+    expect(text(open).some((l) => l.text.includes('The river'))).toBe(true);
+    expect(text(open).find((l) => l.type === 'toggle')!.text).toBe('    ▾ Answer');
+    expect(closed.totalChars).toBe(open.totalChars);
+    const after = (layout: typeof closed) => text(layout).find((l) => l.text === 'After.')!.offset;
+    expect(after(closed)).toBe(after(open));
+  });
 });

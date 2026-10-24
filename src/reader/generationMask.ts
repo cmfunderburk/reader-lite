@@ -363,3 +363,42 @@ export function maskGenerationLine(
   result += lineText.slice(cursor);
   return result;
 }
+
+// reader-lite addition: masking for code lines. Keywords stay so the
+// structure reads; identifiers (and words in strings and comments) are
+// masked like prose words, each snake_case part on its own.
+const CODE_KEYWORDS: ReadonlySet<string> = new Set(
+  (
+    // Python
+    'and as assert async await break class continue def del elif else except finally for from global if import in is ' +
+    'lambda nonlocal not or pass raise return try while with yield none true false self cls print len range ' +
+    // Rust, C, C++, Go
+    'fn let mut pub struct enum impl trait use mod crate super where match loop ref move const static unsafe extern ' +
+    'type dyn box vec some ok err option result string str usize isize u8 u16 u32 u64 i8 i16 i32 i64 f32 f64 bool char ' +
+    'int long short float double void unsigned signed sizeof typedef switch case default goto do auto register volatile ' +
+    'include define ifdef ifndef endif struct union namespace template typename public private protected virtual ' +
+    'new delete this nullptr func go chan defer select package interface map make nil ' +
+    // JavaScript, TypeScript
+    'var function export extends instanceof typeof undefined null void throw catch of yield async implements readonly ' +
+    // SQL
+    'select from where group by order having limit offset join inner outer left right full on union all distinct ' +
+    'insert into values update set delete create table drop alter index view with recursive case when then end ' +
+    'null not like between exists asc desc count sum avg min max cast primary key foreign references ' +
+    // Lisp, shell
+    'define lambda let quote cond begin car cdr cons list echo fi then esac done'
+  ).split(' '),
+);
+
+export function maskCodeLine(lineText: string, difficulty: GenerationDifficulty, seed: number, lineIndex: number): string {
+  const profile = DIFFICULTY_PROFILES[difficulty];
+  return lineText.replace(/[A-Za-z_][A-Za-z0-9_]*/g, (word, offset: number) => {
+    if (CODE_KEYWORDS.has(word.toLowerCase())) return word;
+    return word
+      .split(/(_+)/)
+      .map((part, i) => {
+        if (i % 2 === 1 || part.length < 3 || /^\d+$/.test(part)) return part;
+        return maskCoreWordByProfile(part, profile, `${seed}|${lineIndex}|${offset}|${i}|${part}`);
+      })
+      .join('');
+  });
+}
