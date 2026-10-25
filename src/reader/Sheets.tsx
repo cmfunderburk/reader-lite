@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react';
-import { FONT_SIZE_RANGE, SACCADE_RANGE, useSettings, type Theme } from '../settings';
+import { FONT_SIZE_RANGE, PAGE_MARGIN_RANGE, SACCADE_RANGE, useSettings, type Theme } from '../settings';
 import type { GenerationDifficulty } from './generationMask';
 import type { ChapterSummary } from '../store/db';
 
@@ -52,18 +52,19 @@ export function TocSheet({
   );
 }
 
-function Stepper({ value, min, max, onChange, format }: {
+function Stepper({ value, min, max, step = 1, onChange, format }: {
   value: number;
   min: number;
   max: number;
+  step?: number;
   onChange: (value: number) => void;
   format?: (value: number) => string;
 }) {
   return (
     <div className="stepper">
-      <button className="button step" disabled={value <= min} onClick={() => onChange(value - 1)} aria-label="Decrease">−</button>
+      <button className="button step" disabled={value <= min} onClick={() => onChange(Math.max(min, value - step))} aria-label="Decrease">−</button>
       <span className="stepper-value">{format ? format(value) : value}</span>
-      <button className="button step" disabled={value >= max} onClick={() => onChange(value + 1)} aria-label="Increase">+</button>
+      <button className="button step" disabled={value >= max} onClick={() => onChange(Math.min(max, value + step))} aria-label="Increase">+</button>
     </div>
   );
 }
@@ -107,6 +108,17 @@ export function SettingsSheet({ onClose }: { onClose: () => void }) {
           max={FONT_SIZE_RANGE.max}
           onChange={(fontSize) => update({ fontSize })}
           format={(size) => `${size}px`}
+        />
+      </div>
+      <div className="setting">
+        <span>Margins</span>
+        <Stepper
+          value={settings.pageMargin}
+          min={PAGE_MARGIN_RANGE.min}
+          max={PAGE_MARGIN_RANGE.max}
+          step={PAGE_MARGIN_RANGE.step}
+          onChange={(pageMargin) => update({ pageMargin })}
+          format={(margin) => `${margin}%`}
         />
       </div>
       <div className="setting">

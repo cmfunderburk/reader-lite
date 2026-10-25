@@ -13,7 +13,7 @@ import {
   type ChapterRecord,
 } from '../store/db';
 import { hashToUnitInterval } from './generationTokens';
-import { GuidedLine, type LineState } from './GuidedLine';
+import { GuidedLine, lineDurationMs, type LineState } from './GuidedLine';
 import { isPacedLine, layoutChapter, pageIndexForOffset, type Page } from './layout';
 import { lineSpan } from './saccade';
 import { SettingsSheet, TocSheet } from './Sheets';
@@ -29,6 +29,26 @@ interface Position {
 
 /** Offset past any chapter's end: resolves to the chapter's last page. */
 const CHAPTER_END = Number.MAX_SAFE_INTEGER;
+
+/** Pacer time from line `fromLine` of page `fromPage` to the chapter's end. */
+function msToChapterEnd(pages: Page[], fromPage: number, fromLine: number, wpm: number): number {
+  let ms = 0;
+  for (let p = fromPage; p < pages.length; p++) {
+    const lines = pages[p]!.lines;
+    for (let i = p === fromPage ? fromLine : 0; i < lines.length; i++) {
+      if (isPacedLine(lines[i]!)) ms += lineDurationMs(lines[i]!, wpm);
+    }
+  }
+  return ms;
+}
+
+/** "<1m", "12m", "1h 05m". */
+function formatRemaining(ms: number): string {
+  const minutes = Math.round(ms / 60000);
+  if (minutes < 1) return '<1m';
+  if (minutes < 60) return `${minutes}m`;
+  return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`;
+}
 
 function firstPacedLine(page: Page | undefined, from = 0): number {
   if (!page) return -1;
@@ -108,6 +128,13 @@ export function ReaderView({ bookId }: { bookId: string }) {
 
   const pageIndex = layout && position ? pageIndexForOffset(layout.pages, position.offset) : 0;
   const page = layout?.pages[pageIndex];
+
+  // Counted from the pacer's line while it's on, otherwise from the top of the page.
+  const pacerOn = pacer !== 'off';
+  const remainingMs = useMemo(
+    () => (layout ? msToChapterEnd(layout.pages, pageIndex, pacerOn ? pacerLine : 0, wpm) : 0),
+    [layout, pageIndex, pacerOn, pacerLine, wpm],
+  );
 
   // A new page (turned, jumped to, or re-flowed) starts the pacer at its top,
   // masked. Opening or closing a callout re-flows the same page instead: the
@@ -263,7 +290,6 @@ export function ReaderView({ bookId }: { bookId: string }) {
     );
   }
 
-  const pacerOn = pacer !== 'off';
   const lineState = (index: number): LineState =>
     !pacerOn ? 'static' : index < pacerLine ? 'behind' : index === pacerLine ? 'active' : 'ahead';
 
@@ -277,7 +303,13 @@ export function ReaderView({ bookId }: { bookId: string }) {
 
   return (
     <main className="reader">
-      <div className="page-area" ref={pageAreaRef} {...gestures}>
+      <header className="reader-header">{book && position ? book.chapters[position.chapter]?.title : ''}</header>
+      <div
+        className="page-area"
+        ref={pageAreaRef}
+        style={{ paddingInline: `${settings.pageMargin}%` }}
+        {...gestures}
+      >
         {updating && <p className="reader-note">Updating this book for the new version…</p>}
         {page && metrics && (
           <div
@@ -317,7 +349,7 @@ export function ReaderView({ bookId }: { bookId: string }) {
           {layout && position && (
             <>
               p. {pageIndex + 1}/{layout.pages.length} · Ch {position.chapter + 1}/{lastChapter + 1} · {percent}%
-              {pacerOn && ` · ${wpm} wpm`}
+              {pacerOn && ` · ${wpm} wpm · ${formatRemaining(remainingMs)} left in ch`}
             </>
           )}
         </span>

@@ -8,6 +8,8 @@ export type ReadingMode = 'guided' | 'generation';
 
 export interface Settings {
   fontSize: number;
+  /** Extra left/right margin around the page, as a percentage of the screen width per side. */
+  pageMargin: number;
   theme: Theme;
   showOvp: boolean;
   alternateOvpColors: boolean;
@@ -26,6 +28,7 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   fontSize: 16,
+  pageMargin: 0,
   theme: 'system',
   showOvp: true,
   alternateOvpColors: false,
@@ -39,6 +42,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 export const FONT_SIZE_RANGE = { min: 12, max: 26 } as const;
+export const PAGE_MARGIN_RANGE = { min: 0, max: 20, step: 2 } as const;
 export const SACCADE_RANGE = { min: 7, max: 15 } as const;
 
 const SETTINGS_KEY = 'reader';

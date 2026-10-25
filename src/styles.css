@@ -320,8 +320,21 @@ button, select {
   flex-direction: column;
   height: 100dvh;
   overflow: hidden;
-  padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 0
+  padding: env(safe-area-inset-top) max(16px, env(safe-area-inset-right)) 0
     max(16px, env(safe-area-inset-left));
+}
+
+.reader-header {
+  flex: none;
+  height: 32px;
+  line-height: 32px;
+  padding: 0 44px;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .page-area {

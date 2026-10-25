@@ -1,6 +1,5 @@
 import { useLayoutEffect, useState, type RefObject } from 'react';
 
-export const MAX_CHARS_PER_LINE = 80;
 const MIN_CHARS_PER_LINE = 20;
 const MIN_LINES_PER_PAGE = 4;
 const LINE_HEIGHT_RATIO = 1.7;
@@ -31,9 +30,12 @@ export function usePageMetrics(ref: RefObject<HTMLElement | null>, fontSize: num
       frame = requestAnimationFrame(() => {
         const charWidth = probe.getBoundingClientRect().width / 100;
         if (charWidth <= 0 || el.clientHeight <= 0) return;
+        // Side margins are padding on the page area; clientWidth includes it.
+        const style = getComputedStyle(el);
+        const width = el.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
         const lineHeight = Math.round(fontSize * LINE_HEIGHT_RATIO);
         const next: PageMetrics = {
-          charsPerLine: Math.max(MIN_CHARS_PER_LINE, Math.min(MAX_CHARS_PER_LINE, Math.floor(el.clientWidth / charWidth))),
+          charsPerLine: Math.max(MIN_CHARS_PER_LINE, Math.floor(width / charWidth)),
           linesPerPage: Math.max(MIN_LINES_PER_PAGE, Math.floor(el.clientHeight / lineHeight)),
           lineHeight,
         };
