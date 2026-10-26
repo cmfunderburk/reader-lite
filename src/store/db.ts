@@ -6,7 +6,12 @@ const DB_VERSION = 1;
 
 export interface ChapterSummary {
   title: string;
+  /** Length of the stored content. */
   chars: number;
+  /** Non-whitespace characters, the unit of positions (reader/layout.ts). Missing before parser version 3. */
+  visibleChars?: number;
+  /** Characters the pacer sweeps through, for reading-time estimates. Missing before parser version 3. */
+  pacedChars?: number;
 }
 
 export interface BookRecord {
@@ -153,12 +158,23 @@ export function getFile(bookId: string): Promise<FileRecord | undefined> {
   );
 }
 
-/** Replace a book's record, chapters and assets after re-parsing its file. */
-export function replaceBookContent(book: BookRecord, chapters: ChapterRecord[], assets: AssetRecord[]): Promise<void> {
-  return transaction(['books', 'chapters', 'assets'], 'readwrite', (tx) => {
-    tx.objectStore('chapters').delete(bookRange(book.id));
-    tx.objectStore('assets').delete(bookRange(book.id));
-    tx.objectStore('books').put(book);
+/**
+ * Replace a book's chapters and assets after re-parsing its file, applying
+ * `changes` to its record. Does nothing if the book was removed meanwhile.
+ */
+export function replaceBookContent(
+  id: string,
+  changes: Partial<Omit<BookRecord, 'id'>>,
+  chapters: ChapterRecord[],
+  assets: AssetRecord[],
+): Promise<void> {
+  return transaction(['books', 'chapters', 'assets'], 'readwrite', async (tx) => {
+    const books = tx.objectStore('books');
+    const book = (await promisify(books.get(id))) as BookRecord | undefined;
+    if (!book) return;
+    tx.objectStore('chapters').delete(bookRange(id));
+    tx.objectStore('assets').delete(bookRange(id));
+    books.put({ ...book, ...changes });
     for (const chapter of chapters) tx.objectStore('chapters').put(chapter);
     for (const asset of assets) tx.objectStore('assets').put(asset);
   });

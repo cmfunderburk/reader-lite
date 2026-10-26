@@ -1,7 +1,8 @@
 import { memo, useMemo, type AnimationEvent, type CSSProperties, type ReactNode } from 'react';
-import type { PageLine } from './layout';
+import { pacedChars, type PageLine } from './layout';
 import { maskCodeLine, maskGenerationLine, type GenerationDifficulty } from './generationMask';
 import { calculateGuidedLineDuration, computeLineFixations } from './saccade';
+import { charStyles, styleClasses, type StyleRun } from './styledText';
 import { useAssetUrl } from './useAssetUrl';
 
 /** Figures get at least this long under the pacer, whatever their caption length. */
@@ -44,11 +45,12 @@ function indentOf(text: string): number {
 }
 
 export function lineDurationMs(line: PageLine, wpm: number): number {
-  const duration = calculateGuidedLineDuration(line.text.trim().length, wpm);
+  const duration = calculateGuidedLineDuration(pacedChars(line), wpm);
   return line.type === 'figure' ? Math.max(MIN_FIGURE_DWELL_MS, duration) : duration;
 }
 
 interface TextOptions {
+  styles: StyleRun[] | undefined;
   fixations: number[];
   ovp: 'none' | 'static' | 'passing';
   alternate: boolean;
@@ -62,15 +64,16 @@ interface TextOptions {
 
 /**
  * One pass over the line's characters, wrapping OVP marks and masked letters
- * in spans and leaving runs of plain text as strings. Spans that change when
- * the sweep reaches them get an animation delay proportional to their
- * position; the delay pauses with the sweep, so the two stay in step.
+ * in spans and leaving runs of plain text as strings, inside a span per
+ * stretch of inline style. Spans that change when the sweep reaches them get
+ * an animation delay proportional to their position; the delay pauses with
+ * the sweep, so the two stay in step.
  */
 function renderText(text: string, options: TextOptions): ReactNode {
-  const { fixations, ovp, alternate, masked, revealing, durationMs, playing } = options;
+  const { styles, fixations, ovp, alternate, masked, revealing, durationMs, playing } = options;
   const fixationOrdinal = new Map<number, number>();
   if (ovp !== 'none') fixations.forEach((charIndex, i) => fixationOrdinal.set(charIndex, i));
-  if (fixationOrdinal.size === 0 && !masked) return text;
+  if (fixationOrdinal.size === 0 && !masked && !styles) return text;
 
   // The sweep covers the text after its indentation.
   const lead = indentOf(text);
@@ -80,26 +83,46 @@ function renderText(text: string, options: TextOptions): ReactNode {
     animationPlayState: playing ? 'running' : 'paused',
   });
 
+  const styleAt = styles && charStyles(text.length, styles);
   const parts: ReactNode[] = [];
+  let group: ReactNode[] = []; // the current stretch of one style
+  let groupStyle = 0;
+  let groupStart = 0;
   let run = '';
+  const endGroup = () => {
+    if (run) group.push(run);
+    run = '';
+    if (groupStyle && group.length > 0) {
+      parts.push(<span key={`s${groupStart}`} className={styleClasses(groupStyle)}>{group}</span>);
+    } else {
+      parts.push(...group);
+    }
+    group = [];
+  };
   for (let i = 0; i < text.length; i++) {
+    const style = styleAt?.[i] ?? 0;
+    if (style !== groupStyle) {
+      endGroup();
+      groupStyle = style;
+      groupStart = i;
+    }
     const isMask = masked?.[i] === '_';
     const ordinal = fixationOrdinal.get(i);
     if (!isMask && ordinal === undefined) {
       run += text[i];
       continue;
     }
-    if (run) parts.push(run);
+    if (run) group.push(run);
     run = '';
     if (isMask) {
       // The real letter, hidden, keeps the glyph's width and is what the reveal shows.
-      parts.push(
+      group.push(
         <span key={i} className={`mask${revealing ? ' mask-revealing' : ''}`} style={revealing ? timed(i) : undefined}>
           {text[i]}
         </span>,
       );
     } else {
-      parts.push(
+      group.push(
         <span
           key={i}
           className={`ovp${alternate && ordinal! % 2 === 1 ? ' ovp-alt' : ''}${ovp === 'passing' ? ' ovp-passing' : ''}`}
@@ -110,7 +133,7 @@ function renderText(text: string, options: TextOptions): ReactNode {
       );
     }
   }
-  if (run) parts.push(run);
+  endGroup();
   return parts;
 }
 
@@ -218,6 +241,7 @@ export const GuidedLine = memo(function GuidedLine({
         </span>
       )}
       {renderText(line.text, {
+        styles: line.styles,
         fixations,
         ovp,
         alternate: alternateOvpColors,

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { WPM_STEP, clampWpm } from '../pacer';
 import { isOutdated, reparseBook } from '../library/importBook';
+import { bookProgress, bookWpm, formatDuration } from '../library/progress';
 import { navigate } from '../route';
 import { useSettings, type ReadingMode } from '../settings';
 import {
@@ -40,14 +41,6 @@ function msToChapterEnd(pages: Page[], fromPage: number, fromLine: number, wpm: 
     }
   }
   return ms;
-}
-
-/** "<1m", "12m", "1h 05m". */
-function formatRemaining(ms: number): string {
-  const minutes = Math.round(ms / 60000);
-  if (minutes < 1) return '<1m';
-  if (minutes < 60) return `${minutes}m`;
-  return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`;
 }
 
 function firstPacedLine(page: Page | undefined, from = 0): number {
@@ -93,8 +86,7 @@ export function ReaderView({ bookId }: { bookId: string }) {
       }
       const saved = await getPosition(bookId);
       setBook(found);
-      // Wikipedia articles share one WPM; books each keep their own.
-      setWpm(found.format === 'wikipedia' ? settings.wikipediaWpm || settings.defaultWpm : (found.wpm ?? settings.defaultWpm));
+      setWpm(bookWpm(found, settings));
       setPosition({
         chapter: Math.min(saved?.chapter ?? 0, found.chapters.length - 1),
         offset: saved?.offset ?? 0,
@@ -293,13 +285,7 @@ export function ReaderView({ bookId }: { bookId: string }) {
   const lineState = (index: number): LineState =>
     !pacerOn ? 'static' : index < pacerLine ? 'behind' : index === pacerLine ? 'active' : 'ahead';
 
-  const totalBookChars = book?.chapters.reduce((sum, c) => sum + c.chars, 0) ?? 0;
-  const percent = (() => {
-    if (!book || !position || !layout || totalBookChars === 0) return 0;
-    const before = book.chapters.slice(0, position.chapter).reduce((sum, c) => sum + c.chars, 0);
-    const within = layout.totalChars > 0 ? (page?.startOffset ?? 0) / layout.totalChars : 0;
-    return Math.round(((before + within * (book.chapters[position.chapter]?.chars ?? 0)) / totalBookChars) * 100);
-  })();
+  const progress = book && position && page && bookProgress(book.chapters, { chapter: position.chapter, offset: page.startOffset });
 
   return (
     <main className="reader">
@@ -348,8 +334,9 @@ export function ReaderView({ bookId }: { bookId: string }) {
         <span className="footer-info">
           {layout && position && (
             <>
-              p. {pageIndex + 1}/{layout.pages.length} · Ch {position.chapter + 1}/{lastChapter + 1} · {percent}%
-              {pacerOn && ` · ${wpm} wpm · ${formatRemaining(remainingMs)} left in ch`}
+              p. {pageIndex + 1}/{layout.pages.length} · Ch {position.chapter + 1}/{lastChapter + 1}
+              {progress && ` · ${Math.round(progress.fraction * 100)}%`}
+              {pacerOn && ` · ${wpm} wpm · ${formatDuration(remainingMs)} left in ch`}
             </>
           )}
         </span>

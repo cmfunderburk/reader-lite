@@ -56,3 +56,30 @@ export function pageIndexForOffset(pages: Page[], offset: number): number {
 export function isPacedLine(line: GuidedLine): boolean {
   return line.type === 'figure' || (line.type !== 'blank' && line.type !== 'toggle' && line.text.trim() !== '');
 }
+
+/** Characters the pacer times a line by (see lineDurationMs). */
+export function pacedChars(line: GuidedLine): number {
+  return line.text.trim().length;
+}
+
+/**
+ * Width the reading length is measured at. Wrapping only drops the space at
+ * each line break, so any width gives nearly the same count.
+ */
+const MEASURE_WIDTH = 64;
+
+/**
+ * A chapter's size for progress and reading-time estimates: its visible
+ * characters (the unit of positions) and the characters the pacer sweeps,
+ * with collapsed callouts closed. Figures count by their caption, so a
+ * figure's minimum dwell isn't included.
+ */
+export function readingLength(content: string): { visibleChars: number; pacedChars: number } {
+  let visible = 0;
+  let paced = 0;
+  for (const line of flowTextIntoLines(content, MEASURE_WIDTH)) {
+    visible += lineChars(line);
+    if (isPacedLine(line)) paced += pacedChars(line);
+  }
+  return { visibleChars: visible, pacedChars: paced };
+}

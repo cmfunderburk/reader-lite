@@ -2,6 +2,7 @@ import { EpubError, PARSER_VERSION, parseEpub, type ParsedBook } from '../epub/p
 import { ZipArchive, ZipError } from '../epub/zip';
 import { buildStoredZip } from '../epub/zipWriter';
 import { imageMediaType, isIncluded, isMarkdownPath, parseMarkdownBook } from '../markdown/book';
+import { readingLength } from '../reader/layout';
 import { requestPersistence } from '../store/persistence';
 import { WikipediaError, type WikiArticle } from '../wikipedia/article';
 import { ARTICLE_FILE, readWikipediaFile, wikipediaBook, wikipediaFile, type LeadImage } from '../wikipedia/book';
@@ -183,7 +184,11 @@ export async function importEpub(file: File): Promise<ImportResult> {
 }
 
 function chapterSummaries(parsed: ParsedBook): BookRecord['chapters'] {
-  return parsed.chapters.map((chapter) => ({ title: chapter.title, chars: chapter.content.length }));
+  return parsed.chapters.map((chapter) => ({
+    title: chapter.title,
+    chars: chapter.content.length,
+    ...readingLength(chapter.content),
+  }));
 }
 
 function chapterRecords(bookId: string, parsed: ParsedBook): ChapterRecord[] {
@@ -203,35 +208,73 @@ export function isOutdated(book: BookRecord): boolean {
   return (book.parserVersion ?? 1) < PARSER_VERSION;
 }
 
+const reparsing = new Map<string, Promise<BookRecord>>();
+
 /**
  * Re-parse a book from its stored file with the current parser, keeping its
  * WPM and reading history. Chapters can split or merge, so the saved position
  * moves to the chapter with the same title nearest its old index (start of
- * that chapter if the title changed).
+ * that chapter if the title changed). A book already being re-parsed (by the
+ * library's upgrade, say) isn't parsed twice.
  */
-export async function reparseBook(book: BookRecord): Promise<BookRecord> {
+export function reparseBook(book: BookRecord): Promise<BookRecord> {
+  let pending = reparsing.get(book.id);
+  if (!pending) {
+    pending = reparse(book).finally(() => reparsing.delete(book.id));
+    reparsing.set(book.id, pending);
+  }
+  return pending;
+}
+
+async function reparse(book: BookRecord): Promise<BookRecord> {
   const file = await getFile(book.id);
   if (!file) return book;
   const parsed = await parseStoredFile(book, file.data, file.name);
-  const updated: BookRecord = {
-    ...book,
+  const changes = {
     title: parsed.title,
     author: parsed.author,
     chapters: chapterSummaries(parsed),
     parserVersion: PARSER_VERSION,
   };
+  const updated: BookRecord = { ...book, ...changes };
 
   const position = await getPosition(book.id);
-  await replaceBookContent(updated, chapterRecords(book.id, parsed), assetRecords(book.id, parsed));
+  await replaceBookContent(book.id, changes, chapterRecords(book.id, parsed), assetRecords(book.id, parsed));
   if (position) {
     const best = nearestChapterTitled(updated.chapters, position.chapter, book.chapters[position.chapter]?.title);
-    await savePosition(
-      best >= 0
-        ? { ...position, chapter: best, updatedAt: Date.now() }
-        : { ...position, chapter: Math.min(position.chapter, updated.chapters.length - 1), offset: 0, updatedAt: Date.now() },
-    );
+    // A place that stays put keeps its time, so a newer backup's place still wins on restore.
+    if (best !== position.chapter) {
+      await savePosition(
+        best >= 0
+          ? { ...position, chapter: best, updatedAt: Date.now() }
+          : { ...position, chapter: Math.min(position.chapter, updated.chapters.length - 1), offset: 0, updatedAt: Date.now() },
+      );
+    }
   }
   return updated;
+}
+
+const upgradeTried = new Set<string>();
+
+/**
+ * Re-parse, one at a time, the books an older parser imported, so the
+ * library has their reading lengths and they open without a wait. Each book
+ * is tried once per session; `signal` stops before the next book.
+ */
+export async function upgradeOutdatedBooks(
+  books: BookRecord[],
+  { signal, onUpdated }: { signal: AbortSignal; onUpdated: () => void },
+): Promise<void> {
+  for (const book of books) {
+    if (signal.aborted) return;
+    if (!isOutdated(book) || upgradeTried.has(book.id)) continue;
+    upgradeTried.add(book.id);
+    try {
+      if (!isOutdated(await reparseBook(book))) onUpdated();
+    } catch (err) {
+      console.error(`Couldn't update “${book.title}”`, err);
+    }
+  }
 }
 
 async function parseStoredFile(book: BookRecord, data: ArrayBuffer, name: string): Promise<ParsedBook> {

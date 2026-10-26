@@ -12,6 +12,8 @@
   --sweep-quiet: rgb(40 110 220 / 0.15);
   --backdrop: rgb(0 0 0 / 0.25);
   --callout-bar: rgb(42 100 197 / 0.35);
+  --code-inline: rgb(0 0 0 / 0.06);
+  --highlight: rgb(250 204 21 / 0.4);
   --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --reading-size: 16px;
   color-scheme: light;
@@ -32,6 +34,8 @@
     --sweep-quiet: rgb(110 160 255 / 0.16);
     --backdrop: rgb(0 0 0 / 0.5);
     --callout-bar: rgb(122 167 255 / 0.4);
+    --code-inline: rgb(255 255 255 / 0.08);
+    --highlight: rgb(250 204 21 / 0.28);
     color-scheme: dark;
   }
 }
@@ -50,6 +54,8 @@
   --sweep-quiet: rgb(110 160 255 / 0.16);
   --backdrop: rgb(0 0 0 / 0.5);
   --callout-bar: rgb(122 167 255 / 0.4);
+  --code-inline: rgb(255 255 255 / 0.08);
+  --highlight: rgb(250 204 21 / 0.28);
   color-scheme: dark;
 }
 
@@ -204,6 +210,11 @@ button, select {
 
 .wiki-title {
   font-size: 17px;
+}
+
+.wiki-length {
+  color: var(--muted);
+  font-size: 13px;
 }
 
 .wiki-description,
@@ -408,6 +419,30 @@ button, select {
 
 .line.table-header {
   font-weight: 700;
+}
+
+/* Inline styles. A monospace face gives every glyph the same advance in
+   italic and bold, so styling never moves text off the character grid. */
+.s-italic {
+  font-style: italic;
+}
+
+.s-bold {
+  font-weight: 700;
+}
+
+.s-code {
+  background: var(--code-inline);
+  border-radius: 3px;
+}
+
+.s-highlight {
+  background: var(--highlight);
+  border-radius: 2px;
+}
+
+.s-strike {
+  text-decoration: line-through;
 }
 
 .ovp {

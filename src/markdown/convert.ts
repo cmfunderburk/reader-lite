@@ -2,7 +2,8 @@
 // Covers what study notes and guides use: CommonMark blocks (headings,
 // paragraphs, fenced code, lists, block quotes, rules), pipe tables, and
 // Obsidian's callouts (`> [!type]- Title`), [[wikilinks]] and ![[embeds]].
-// Inline formatting is flattened to plain text, as for EPUBs.
+// Emphasis, code spans, ==highlights== and ~~strikethrough~~ become style
+// marks, as for EPUBs; other inline syntax is flattened to plain text.
 
 import {
   ASSET_SCHEME,
@@ -11,7 +12,10 @@ import {
   LIST_MARKER,
   codeBlock,
   guardMarkup,
+  stripStyles,
+  styled,
   tableBlock,
+  type InlineStyle,
 } from '../epub/content';
 
 export interface MarkdownContext {
@@ -35,6 +39,8 @@ const IMAGE_ONLY = /^!\[([^\]]*)\]\(\s*<?([^)\s>]+)>?(?:\s+["'][^"']*["'])?\s*\)
 const EMBED_ONLY = /^!\[\[([^\]|#]+)(?:[#|][^\]]*)?\]\]$/;
 const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', mdash: '—', ndash: '–', hellip: '…' };
 const BULLETS = ['•', '◦', '▪'];
+/** Inline HTML that carries a style, when written as a pair. */
+const HTML_STYLES: Record<string, InlineStyle> = { b: 'bold', strong: 'bold', i: 'italic', em: 'italic', mark: 'highlight', s: 'strike', del: 'strike' };
 
 /** Front matter's `title`, and the text after the front matter. */
 export function splitFrontMatter(source: string): { title?: string; body: string } {
@@ -52,7 +58,7 @@ export function markdownTitle(source: string): string | undefined {
   for (const line of body.split('\n')) {
     if (FENCE.test(line)) inFence = !inFence;
     const heading = !inFence && line.match(/^ {0,3}#\s+(.*?)(?:\s+#+)?\s*$/);
-    if (heading) return flattenInline(heading[1]!, { resolveImage: () => undefined, linkTitle: () => undefined });
+    if (heading) return stripStyles(flattenInline(heading[1]!, { resolveImage: () => undefined, linkTitle: () => undefined }));
   }
   return undefined;
 }
@@ -67,13 +73,13 @@ function decodeEntities(text: string): string {
   });
 }
 
-/** Inline Markdown to plain text: code spans kept verbatim, links to their text, emphasis dropped. */
+/** Inline Markdown to text with style marks: code spans kept verbatim, links to their text. */
 export function flattenInline(text: string, context: MarkdownContext): string {
   const kept: string[] = [];
   const keep = (value: string) => `\u0000${kept.push(value) - 1}\u0000`;
 
   let out = text
-    .replace(/(`+)(.+?)\1(?!`)/g, (_, _ticks, code: string) => keep(code.trim()))
+    .replace(/(`+)(.+?)\1(?!`)/g, (_, _ticks, code: string) => keep(styled('code', code.trim())))
     .replace(/\\([\\`*_{}[\]()#+\-.!|>~=$<])/g, (_, char: string) => keep(char))
     .replace(/!\[\[[^\]]*\]\]/g, '')
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
@@ -87,12 +93,13 @@ export function flattenInline(text: string, context: MarkdownContext): string {
     .replace(/<((?:https?|mailto):[^>\s]+)>/g, '$1')
     .replace(/\[\^[^\]]+\]/g, '')
     .replace(/<br\s*\/?>/gi, ' ')
+    .replace(/<(b|strong|i|em|mark|s|del)>(.*?)<\/\1>/gi, (_, tag: string, inner: string) => styled(HTML_STYLES[tag.toLowerCase()]!, inner))
     .replace(/<\/?[a-z][^>]*>/gi, '')
-    .replace(/(\*\*|__)(?=\S)(.*?\S)\1/g, '$2')
-    .replace(/\*(?=\S)(.*?\S)\*/g, '$1')
-    .replace(/(^|\W)_(?=\S)(.*?\S)_(?=\W|$)/g, '$1$2')
-    .replace(/~~(?=\S)(.*?\S)~~/g, '$1')
-    .replace(/==(?=\S)(.*?\S)==/g, '$1')
+    .replace(/(\*\*|__)(?=\S)(.*?\S)\1/g, (_, _marker, inner: string) => styled('bold', inner))
+    .replace(/\*(?=\S)(.*?\S)\*/g, (_, inner: string) => styled('italic', inner))
+    .replace(/(^|\W)_(?=\S)(.*?\S)_(?=\W|$)/g, (_, before: string, inner: string) => before + styled('italic', inner))
+    .replace(/~~(?=\S)(.*?\S)~~/g, (_, inner: string) => styled('strike', inner))
+    .replace(/==(?=\S)(.*?\S)==/g, (_, inner: string) => styled('highlight', inner))
     .replace(/\s\^[\w-]+$/, '');
   out = decodeEntities(out).replace(/\u0000(\d+)\u0000/g, (_, index: string) => kept[Number(index)]!);
   return out.replace(/\s+/g, ' ').trim();
@@ -169,7 +176,7 @@ class BlockParser {
       if (heading) {
         flush();
         const text = this.inline(heading[2]!);
-        if (heading[1]!.length === 1) this.title ??= text;
+        if (heading[1]!.length === 1) this.title ??= stripStyles(text);
         if (text) this.blocks.push(`${heading[1]} ${text}`);
         i++;
         continue;
@@ -180,7 +187,7 @@ class BlockParser {
         const level = trimmed[0] === '=' ? 1 : 2;
         const text = this.inline(paragraph.join(' '));
         paragraph = [];
-        if (level === 1) this.title ??= text;
+        if (level === 1) this.title ??= stripStyles(text);
         this.blocks.push(`${'#'.repeat(level)} ${text}`);
         i++;
         continue;
@@ -238,7 +245,7 @@ class BlockParser {
       for (const line of lines) {
         const image = line.match(IMAGE_ONLY);
         const src = image ? image[2]! : line.match(EMBED_ONLY)![1]!.trim();
-        const alt = image ? this.inline(image[1]!) : '';
+        const alt = image ? stripStyles(this.inline(image[1]!)) : '';
         const path = this.context.resolveImage(src);
         if (path) {
           this.blocks.push(`[FIGURE_URL:${ASSET_SCHEME}${path}]`);

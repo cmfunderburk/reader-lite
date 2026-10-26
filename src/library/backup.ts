@@ -6,6 +6,7 @@ import { EpubError } from '../epub/parse';
 import { ZipArchive, ZipError, decodeText } from '../epub/zip';
 import { storedZipParts, type ZipEntryInput } from '../epub/zipWriter';
 import { getFile, listBooks, putSetting } from '../store/db';
+import { isListed } from '../wikipedia/daily';
 import {
   BACKUP_STATE_FILE,
   BackupError,
@@ -29,7 +30,8 @@ export async function exportReadingState(settings: unknown): Promise<File> {
 export async function exportEverything(settings: unknown): Promise<File> {
   const state = await collectState(settings);
   const entries: ZipEntryInput[] = [{ name: BACKUP_STATE_FILE, data: new TextEncoder().encode(JSON.stringify(state, null, 1)) }];
-  for (const book of await listBooks()) {
+  // Today's article joins the library only once opened; restored without its date, an unopened one would never show or be cleared.
+  for (const book of (await listBooks()).filter(isListed)) {
     const file = await getFile(book.id);
     // The file name is only for people browsing the zip; restore goes by content.
     if (file) entries.push({ name: `${BOOKS_FOLDER}${book.id}/${file.name.replaceAll('/', '_')}`, data: new Uint8Array(file.data) });

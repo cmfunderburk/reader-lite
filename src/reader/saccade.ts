@@ -4,8 +4,9 @@
 // asset-base figure URLs. Page grouping takes the current line width instead
 // of the fixed GUIDED_LINE_WIDTH.
 
-import { CALLOUT_END, CODE_MARKER, LIST_MARKER, TABLE_MARKER } from '../epub/content';
-import { flowCode, flowTable, wrapWords } from './blocks';
+import { CALLOUT_END, CODE_MARKER, LIST_MARKER, TABLE_MARKER, stripStyles } from '../epub/content';
+import { flowCode, flowTable, wrapStyled } from './blocks';
+import { shiftRuns, type StyleRun } from './styledText';
 import { calculateORP, normalizeText, wordPenalty } from './tokenizer';
 
 export const GUIDED_FIGURE_MIN_LINE_SPAN_RATIO = 0.28;
@@ -31,6 +32,8 @@ export interface GuidedLine {
   toggleId?: number;
   /** Characters counted toward offsets, when not the visible text's (toggle lines). */
   chars?: number;
+  /** Inline styles (italic, bold, …) over parts of the text. */
+  styles?: StyleRun[];
 }
 
 /**
@@ -135,11 +138,12 @@ function detectHeading(line: string): { isHeading: boolean; level: number; text:
 }
 
 /**
- * Word-wrap a paragraph into lines of specified width.
+ * Word-wrap a paragraph (with style marks) into lines of specified width,
+ * spacing out run-together sentences unless `normalize` is false.
  */
-function wrapParagraph(text: string, lineWidth: number): GuidedLine[] {
+function wrapParagraph(text: string, lineWidth: number, normalize = true): GuidedLine[] {
   // Words longer than the line (URLs, identifiers) are broken rather than clipped.
-  return wrapWords(text, lineWidth).map((line) => ({ text: line, type: 'body' }));
+  return wrapStyled(text, lineWidth, normalize ? normalizeText : undefined).map((line) => ({ ...line, type: 'body' }));
 }
 
 /**
@@ -166,13 +170,14 @@ const INDENT = '  ';
 /** A list item with a hanging indent: continuation lines align after the bullet. */
 function flowListItem(item: string, width: number): GuidedLine[] {
   const match = item.match(/^( *)(\S+) (.*)$/);
-  if (!match) return wrapParagraph(item, width);
+  if (!match) return wrapParagraph(item, width, false);
   const lead = match[1]! + match[2]! + ' ';
   const room = width - lead.length;
-  if (room < 12) return wrapParagraph(item.trim(), width);
-  return wrapWords(normalizeText(match[3]!), room).map((text, i) => ({
-    text: (i === 0 ? lead : ' '.repeat(lead.length)) + text,
+  if (room < 12) return wrapParagraph(item.trim(), width, false);
+  return wrapStyled(match[3]!, room, normalizeText).map((line, i) => ({
+    text: (i === 0 ? lead : ' '.repeat(lead.length)) + line.text,
     type: 'body',
+    ...(line.styles && { styles: shiftRuns(line.styles, lead.length) }),
   }));
 }
 
@@ -198,10 +203,16 @@ export function flowTextIntoLines(text: string, lineWidth: number, options: Flow
   const push = (...added: GuidedLine[]) => {
     const d = depth();
     for (const line of added) {
+      const indented = line.type !== 'figure' && !!line.text;
       lines.push(
         d === 0
           ? line
-          : { ...line, depth: d, text: line.type === 'figure' || !line.text ? line.text : INDENT.repeat(d) + line.text },
+          : {
+              ...line,
+              depth: d,
+              text: indented ? INDENT.repeat(d) + line.text : line.text,
+              styles: indented ? shiftRuns(line.styles, INDENT.length * d) : line.styles,
+            },
       );
     }
   };
@@ -220,6 +231,7 @@ export function flowTextIntoLines(text: string, lineWidth: number, options: Flow
       const [, , fold, rawTitle] = callout;
       const id = calloutCount++;
       const title = rawTitle!.trim();
+      const plainTitle = stripStyles(title);
       const flipped = options.toggled?.has(id) ?? false;
       const open = fold === '.' || (fold === '+') !== flipped;
       blank();
@@ -227,13 +239,13 @@ export function flowTextIntoLines(text: string, lineWidth: number, options: Flow
       stack.push(entry);
       if (fold !== '.') {
         entry.toggleAt = lines.length;
-        push({ text: `${open ? '▾' : '▸'} ${title}`, type: 'toggle', toggleId: id, chars: visibleChars(title) });
-      } else if (title) {
-        push(...wrapParagraph(normalizeText(title), width).map((line) => ({ ...line, calloutTitle: true })));
+        push({ text: `${open ? '▾' : '▸'} ${plainTitle}`, type: 'toggle', toggleId: id, chars: visibleChars(plainTitle) });
+      } else if (plainTitle) {
+        push(...wrapParagraph(title, width).map((line) => ({ ...line, calloutTitle: true })));
       }
       entry.open = open;
       entry.contentAt = lines.length;
-      afterTitle = fold === '.' ? !!title : true;
+      afterTitle = fold === '.' ? !!plainTitle : true;
       continue;
     }
 
@@ -277,7 +289,7 @@ export function flowTextIntoLines(text: string, lineWidth: number, options: Flow
       if (next !== undefined && !FIGURE_URL_PATTERN.test(next)) {
         const captionMatch = next.match(FIGURE_CAPTION_PATTERN);
         if (captionMatch) {
-          figureCaption = captionMatch[1]!.trim();
+          figureCaption = stripStyles(captionMatch[1]!).trim();
           i += 1;
         }
       }
@@ -296,20 +308,19 @@ export function flowTextIntoLines(text: string, lineWidth: number, options: Flow
 
     if (heading.isHeading) {
       // Headings wrap like body text so they never overflow the line width.
-      for (const wrapped of wrapParagraph(normalizeText(heading.text), width)) {
-        push({ text: wrapped.text, type: 'heading', level: heading.level });
+      for (const wrapped of wrapParagraph(heading.text, width)) {
+        push({ ...wrapped, type: 'heading', level: heading.level });
       }
       // If there's more content after the heading line, process it as a paragraph
       const restOfBlock = blockLines.slice(1).join(' ').trim();
       if (restOfBlock.length > 0) {
         blank();
-        push(...wrapParagraph(normalizeText(restOfBlock), width));
+        push(...wrapParagraph(restOfBlock, width));
       }
     } else {
       // Regular paragraph - collapse newlines into spaces and word wrap.
       // normalizeText only touches prose: in code, `a.B` is not a sentence break.
-      const paragraph = normalizeText(block.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim());
-      push(...wrapParagraph(paragraph, width));
+      push(...wrapParagraph(block.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim(), width));
     }
   }
 

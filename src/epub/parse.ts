@@ -2,6 +2,7 @@ import {
   convertBody,
   segmentContent,
   segmentHasText,
+  stripStyles,
   type ContentSegment,
 } from './content';
 import {
@@ -50,16 +51,16 @@ interface TocEntry {
   depth: number;
 }
 
-/** Spine files longer than this with no TOC-driven split get Reader's heading split. */
 /**
  * Bumped when parsing changes what a book's content looks like; books parsed
- * by an older version are re-parsed from their stored file when opened.
+ * by an older version are re-parsed from their stored file.
  * 2: code blocks, tables, callouts, merged title stubs.
+ * 3: inline styles; chapter summaries with reading lengths.
  */
-export const PARSER_VERSION = 2;
+export const PARSER_VERSION = 3;
 
+/** Spine files longer than this with no TOC-driven split get Reader's heading split. */
 const MONOLITHIC_CHAPTER_CHARS = 100_000;
-
 
 const FONT_PATH = /\.(otf|ttf|ttc|eot|woff2?)$/i;
 const FONT_OBFUSCATION = new Set(['http://www.idpf.org/2008/embedding', 'http://ns.adobe.com/pdf/enc#RC']);
@@ -288,7 +289,7 @@ function headingSplitPoints(body: Element): Map<Element, string> | undefined {
   return new Map(headings.map((el) => [el, collapseWhitespace(el.textContent ?? '') || 'Untitled']));
 }
 
-const normalizeTitle = (text: string) => text.replace(/^#+\s*/, '').replace(/\s+/g, ' ').trim().toLowerCase();
+const normalizeTitle = (text: string) => stripStyles(text).replace(/^#+\s*/, '').replace(/\s+/g, ' ').trim().toLowerCase();
 
 /** A segment holding nothing but its own title. */
 function isTitleStub(segment: ContentSegment): boolean {
@@ -336,7 +337,7 @@ function fallbackTitle(segment: ContentSegment, previous: ParsedChapter | undefi
 
 function firstHeading(segment: ContentSegment): string | undefined {
   const heading = segment.blocks.find((block) => /^#{1,6}\s/.test(block));
-  return heading?.replace(/^#{1,6}\s+/, '');
+  return heading && stripStyles(heading.replace(/^#{1,6}\s+/, ''));
 }
 
 function dirname(path: string): string {

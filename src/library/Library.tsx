@@ -7,7 +7,8 @@ import { exportEverything, exportReadingState, restoreBackup, restoreErrorMessag
 import { LAST_EXPORT_KEY } from './backupState';
 import { isListed } from '../wikipedia/daily';
 import { WikipediaSection } from '../wikipedia/WikipediaSection';
-import { groupImports, importErrorMessage, importSource } from './importBook';
+import { groupImports, importErrorMessage, importSource, upgradeOutdatedBooks } from './importBook';
+import { bookProgress, bookWpm, formatDuration, pacedMs } from './progress';
 
 /** Folder picking, where the browser offers it (desktop; possibly not iPad). */
 const canPickFolders = typeof document !== 'undefined' && 'webkitdirectory' in document.createElement('input');
@@ -19,12 +20,19 @@ interface ImportStatus {
   message?: string;
 }
 
-function progressLabel(book: BookRecord, position: PositionRecord | undefined): string {
+/** e.g. "ch 3 of 12 · 34% · 2h 10m left at 240 wpm · opened <date>" */
+function progressLabel(book: BookRecord, position: PositionRecord | undefined, wpm: number): string {
+  const progress = bookProgress(book.chapters, position);
   const where = position
     ? `ch ${position.chapter + 1} of ${book.chapters.length}`
     : `${book.chapters.length} ${book.chapters.length === 1 ? 'chapter' : 'chapters'}`;
+  const percent = position && progress && `${Math.round(progress.fraction * 100)}%`;
+  // Until an older book is updated (see upgradeOutdatedBooks), there's no estimate.
+  const time = progress
+    ? `${formatDuration(pacedMs(progress.pacedCharsLeft, wpm))}${position ? ' left' : ''} at ${wpm} wpm`
+    : book.wpm && `${book.wpm} wpm`;
   const opened = book.lastOpenedAt ? `opened ${new Date(book.lastOpenedAt).toLocaleDateString()}` : 'not opened yet';
-  return [where, book.wpm && `${book.wpm} wpm`, opened].filter(Boolean).join(' · ');
+  return [where, percent, time, opened].filter(Boolean).join(' · ');
 }
 
 function restoreMessage(result: RestoreResult): string {
@@ -132,6 +140,7 @@ function BackupSection({ bookCount, onRestored }: { bookCount: number; onRestore
 }
 
 export function Library() {
+  const [settings] = useSettings();
   const [books, setBooks] = useState<BookRecord[] | null>(null);
   const [positions, setPositions] = useState(new Map<string, PositionRecord>());
   const [statuses, setStatuses] = useState<ImportStatus[]>([]);
@@ -151,6 +160,15 @@ export function Library() {
 
   useEffect(() => {
     void refresh();
+  }, [refresh]);
+
+  // Bring books from an older version up to date in the background, while the library is open.
+  useEffect(() => {
+    const controller = new AbortController();
+    void listBooks()
+      .then((all) => upgradeOutdatedBooks(all, { signal: controller.signal, onUpdated: () => void refresh() }))
+      .catch(() => {}); // the library shows its own error if storage is unavailable
+    return () => controller.abort();
   }, [refresh]);
 
   const onFiles = async (files: FileList | null) => {
@@ -252,7 +270,7 @@ export function Library() {
             <button className="book-open" onClick={() => navigate({ screen: 'book', bookId: book.id })}>
               <span className="book-title">{book.title}</span>
               {(book.author ?? book.description) && <span className="book-author">{book.author ?? book.description}</span>}
-              <span className="book-meta">{progressLabel(book, positions.get(book.id))}</span>
+              <span className="book-meta">{progressLabel(book, positions.get(book.id), bookWpm(book, settings))}</span>
             </button>
             <button className="button subtle" onClick={() => void onRemove(book)} aria-label={`Remove ${book.title}`}>
               Remove

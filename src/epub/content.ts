@@ -1,7 +1,7 @@
 // Converts a chapter's XHTML body into the guided reader's content format:
 // blocks separated by blank lines, `#` headings, [FIGURE_URL:…] /
 // [FIGURE caption] markers, and code and table blocks (see
-// flowTextIntoLines). Inline formatting is flattened to plain text.
+// flowTextIntoLines). Inline formatting is kept as style marks (below).
 //
 // Code and table blocks are laid out by the reader for the current line
 // width, so they keep their structure here:
@@ -43,6 +43,77 @@ export const LIST_MARKER = '[LIST]';
  */
 export const CALLOUT_START = '[CALLOUT ';
 export const CALLOUT_END = '[/CALLOUT]';
+
+/**
+ * Inline styles. Each has a control character that turns it on and off
+ * again in running text. Every block starts unstyled, and the converters
+ * close what they open within a block. The marks take no space: the reader
+ * strips them before laying out a line (reader/styledText.ts), so offsets
+ * and line widths never count them.
+ */
+export const INLINE_STYLES = ['italic', 'bold', 'code', 'highlight', 'strike'] as const;
+export type InlineStyle = (typeof INLINE_STYLES)[number];
+const FIRST_STYLE_MARK = 0x11;
+const STYLE_MARKS = /[\u0011-\u0015]/g;
+
+export function styleMark(style: InlineStyle): string {
+  return String.fromCharCode(FIRST_STYLE_MARK + INLINE_STYLES.indexOf(style));
+}
+
+/** The style a mark toggles, as a bit (1 << its index in INLINE_STYLES), or 0 for any other character. */
+export function styleBit(char: string): number {
+  const index = char.charCodeAt(0) - FIRST_STYLE_MARK;
+  return index >= 0 && index < INLINE_STYLES.length ? 1 << index : 0;
+}
+
+/** Text without its style marks (titles, captions, alt text). */
+export function stripStyles(text: string): string {
+  return text.replace(STYLE_MARKS, '');
+}
+
+/**
+ * collapseWhitespace for text with style marks: without its marks, the
+ * result reads as collapseWhitespace would leave the plain text (no doubled,
+ * leading or trailing spaces, even with marks between them).
+ */
+export function collapseStyled(text: string): string {
+  let out = '';
+  let open = 0;
+  let started = false;
+  let space = false;
+  let opening = ''; // marks after a pending space: they go after it, if it stays
+  for (const char of collapseWhitespace(text)) {
+    const bit = styleBit(char);
+    if (char === ' ') {
+      space = started;
+    } else if (bit) {
+      // Closing marks go before a pending space, opening ones after it.
+      if (open & bit || !space) out += char;
+      else opening += char;
+      open ^= bit;
+    } else {
+      out += (space ? ' ' : '') + opening + char;
+      started = true;
+      space = false;
+      opening = '';
+    }
+  }
+  return out + opening;
+}
+
+/** Wrap text in a style's marks. */
+export function styled(style: InlineStyle, text: string): string {
+  return text ? styleMark(style) + text + styleMark(style) : text;
+}
+
+/** Elements whose content takes an inline style. */
+const STYLE_TAGS: Record<string, InlineStyle> = {
+  em: 'italic', i: 'italic', cite: 'italic', dfn: 'italic', var: 'italic',
+  strong: 'bold', b: 'bold',
+  code: 'code', kbd: 'code', samp: 'code', tt: 'code',
+  mark: 'highlight',
+  s: 'strike', del: 'strike', strike: 'strike',
+};
 
 const TAB_WIDTH = 4;
 /** A <dt> this short is a callout number or bullet, joined to its <dd>. */
@@ -178,6 +249,8 @@ class Converter {
   private readonly segments: ContentSegment[] = [];
   private current: ContentSegment = { blocks: [] };
   private inline = '';
+  /** How many elements of each style enclose the current text. */
+  private readonly styleDepth = new Map<InlineStyle, number>();
   private pendingCaption: string | undefined;
   /** A short <dt> (callout number) waiting to prefix its <dd>'s text. */
   private pendingTerm: string | undefined;
@@ -234,15 +307,45 @@ class Converter {
       this.flushInline();
       return;
     }
+    const style = STYLE_TAGS[name];
+    if (style) return this.styledChildren(el, style);
     this.visitChildren(el);
+  }
+
+  private styledChildren(el: Element, style: InlineStyle): void {
+    const depth = this.styleDepth.get(style) ?? 0;
+    // Only the outermost element of a style toggles it (<em> inside <em> stays italic).
+    if (depth === 0) this.inline += styleMark(style);
+    this.styleDepth.set(style, depth + 1);
+    this.visitChildren(el);
+    this.styleDepth.set(style, depth);
+    if (depth === 0) this.inline += styleMark(style);
+  }
+
+  /** Marks that turn on the styles open around the current text. */
+  private openMarks(): string {
+    let marks = '';
+    for (const [style, depth] of this.styleDepth) if (depth > 0) marks += styleMark(style);
+    return marks;
+  }
+
+  /**
+   * The inline text so far, whitespace collapsed, or '' if it has nothing
+   * visible. Styles still open are closed here and reopened for what follows,
+   * so every block is balanced.
+   */
+  private takeInline(): string {
+    const marks = this.openMarks();
+    const text = collapseStyled(this.inline + marks);
+    this.inline = marks;
+    return stripStyles(text).trim() ? text : '';
   }
 
   private heading(el: Element, level: number): void {
     this.flushInline();
     this.flushTerm();
     this.visitChildren(el);
-    const text = collapseWhitespace(this.inline);
-    this.inline = '';
+    const text = this.takeInline();
     if (text) this.current.blocks.push(`${'#'.repeat(level)} ${text}`);
   }
 
@@ -339,16 +442,15 @@ class Converter {
       .map((block) => (block.startsWith(CODE_MARKER) ? block.split('\n').slice(1).join(' ') : block))
       .filter((block) => !block.startsWith('[FIGURE') && !block.startsWith(TABLE_MARKER))
       .join(' ');
-    return collapseWhitespace(text.replace(/[\u001d-\u001f]/g, ' '));
+    return collapseStyled(text.replace(/[\u001d-\u001f]/g, ' '));
   }
 
   private term(el: Element): void {
     this.flushInline();
     this.flushTerm();
     this.visitChildren(el);
-    const text = collapseWhitespace(this.inline);
-    this.inline = '';
-    if (text.length <= SHORT_TERM_CHARS) this.pendingTerm = text || undefined;
+    const text = this.takeInline();
+    if (stripStyles(text).length <= SHORT_TERM_CHARS) this.pendingTerm = text || undefined;
     else this.pushText(text);
   }
 
@@ -366,8 +468,7 @@ class Converter {
   }
 
   private flushInline(): void {
-    const text = collapseWhitespace(this.inline);
-    this.inline = '';
+    const text = this.takeInline();
     if (text) this.pushText(text);
   }
 

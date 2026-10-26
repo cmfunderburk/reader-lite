@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { xhtml } from '../../test/epub-builder';
-import { CELL_SEPARATOR, EMPTY_CODE_LINE, SPANNED_CELL, convertBody, segmentContent } from './content';
+import { CELL_SEPARATOR, EMPTY_CODE_LINE, SPANNED_CELL, collapseStyled, convertBody, segmentContent, stripStyles, styled } from './content';
 import { bodyOf, parseXhtml } from './xml';
 
 function convert(html: string, images: string[] = []) {
@@ -15,8 +15,17 @@ function content(html: string, images: string[] = []): string {
 describe('convertBody', () => {
   test('emits headings and whitespace-collapsed paragraphs', () => {
     expect(content('<h2>Part  One</h2><p>Some\n   <em>inline</em> text.</p><div><p>Nested</p></div>')).toBe(
-      '## Part One\n\nSome inline text.\n\nNested',
+      `## Part One\n\nSome ${styled('italic', 'inline')} text.\n\nNested`,
     );
+  });
+
+  test('keeps inline styles, balanced within each block', () => {
+    expect(content('<p><b>Bold</b>, <i>it <em>still</em> it</i>, <code>x</code>, <mark>m</mark>, <del>d</del></p>')).toBe(
+      `${styled('bold', 'Bold')}, ${styled('italic', 'it still it')}, ${styled('code', 'x')}, ${styled('highlight', 'm')}, ${styled('strike', 'd')}`,
+    );
+    // A style around several blocks is closed and reopened at each.
+    expect(content('<em><p>One</p><p>Two</p></em>')).toBe(`${styled('italic', 'One')}\n\n${styled('italic', 'Two')}`);
+    expect(content('<h2>A <em>Title</em></h2><p><b> </b></p><p>End</p>')).toBe(`## A ${styled('italic', 'Title')}\n\nEnd`);
   });
 
   test('turns images into figure markers with figcaption or alt captions', () => {
@@ -89,7 +98,7 @@ describe('convertBody', () => {
           '<tbody><tr><td><p>Strings</p></td><td><p><code>__repr__  __str__</code></p></td></tr>' +
           '<tr><td colspan="2">Both</td></tr><tr><td></td><td></td></tr></tbody></table>',
       ),
-    ).toBe(`Table 1. Names\n\n[TABLE 1]\nKind${S}Names\nStrings${S}__repr__ __str__\nBoth${S}${SPANNED_CELL}`);
+    ).toBe(`Table 1. Names\n\n[TABLE 1]\nKind${S}Names\nStrings${S}${styled('code', '__repr__ __str__')}\nBoth${S}${SPANNED_CELL}`);
   });
 
   test('reads one-column tables as ordinary content', () => {
@@ -109,4 +118,9 @@ describe('convertBody', () => {
       ['Chapter Two', '## Two\n\n2'],
     ]);
   });
+});
+
+test('collapseStyled collapses spaces around style marks as if they weren’t there', () => {
+  expect(stripStyles(collapseStyled(` a ${styled('code', 'b ')} ${styled('bold', ' c')} `))).toBe('a b c');
+  expect(collapseStyled(`Some ${styled('italic', ' inline ')} text`)).toBe(`Some ${styled('italic', 'inline')} text`);
 });

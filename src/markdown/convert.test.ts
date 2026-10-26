@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { CELL_SEPARATOR as S, EMPTY_CODE_LINE } from '../epub/content';
+import { CELL_SEPARATOR as S, EMPTY_CODE_LINE, styled } from '../epub/content';
+import { parseStyles } from '../reader/styledText';
 import { convertMarkdown, flattenInline, markdownTitle, type MarkdownContext } from './convert';
 
 const context: MarkdownContext = {
@@ -9,10 +10,17 @@ const context: MarkdownContext = {
 const convert = (source: string) => convertMarkdown(source, context);
 
 describe('flattenInline', () => {
-  test('drops emphasis and keeps code spans, links and wikilinks as text', () => {
+  test('keeps emphasis and code spans as styles, and links and wikilinks as text', () => {
     expect(flattenInline('**Bold**, *it*, _em_, `a_b * c`, [link](http://x.y/(z)), [[02-update-rules]], [[x|alias]], [[02-update-rules#Regrets]]', context)).toBe(
-      'Bold, it, em, a_b * c, link, The Update Rules, alias, The Update Rules › Regrets',
+      `${styled('bold', 'Bold')}, ${styled('italic', 'it')}, ${styled('italic', 'em')}, ${styled('code', 'a_b * c')}, link, The Update Rules, alias, The Update Rules › Regrets`,
     );
+    expect(flattenInline('==key== ~~old~~ <mark>hi</mark>', context)).toBe(
+      `${styled('highlight', 'key')} ${styled('strike', 'old')} ${styled('highlight', 'hi')}`,
+    );
+    // Bold italic: the marks nest differently, but every letter is both.
+    const { text, styles } = parseStyles(flattenInline('***both***', context));
+    expect(text).toBe('both');
+    expect(new Set(styles)).toEqual(new Set([0b11]));
   });
 
   test('leaves snake_case and arithmetic alone, and decodes entities', () => {

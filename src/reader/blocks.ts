@@ -5,6 +5,7 @@
 
 import { CELL_SEPARATOR, EMPTY_CODE_LINE, SPANNED_CELL } from '../epub/content';
 import type { GuidedLine } from './saccade';
+import { lineStyles, parseStyles, shiftRuns, type StyleRun } from './styledText';
 
 const COLUMN_GAP = 2;
 /** Below this many characters per column, a table is read row by row instead. */
@@ -34,6 +35,23 @@ export function wrapWords(text: string, width: number): string[] {
   return lines;
 }
 
+export interface StyledLine {
+  text: string;
+  styles?: StyleRun[];
+}
+
+/**
+ * wrapWords for text with style marks: the marks are stripped (and the
+ * plain text passed through `normalize`, which may only change whitespace)
+ * before wrapping, and each line gets its style runs.
+ */
+export function wrapStyled(marked: string, width: number, normalize?: (plain: string) => string): StyledLine[] {
+  const source = parseStyles(marked);
+  const lines = wrapWords(normalize ? normalize(source.text) : source.text, width);
+  const styles = lineStyles(lines, source);
+  return lines.map((text, i) => (styles[i] ? { text, styles: styles[i] } : { text }));
+}
+
 /**
  * Code keeps its lines and indentation. A line too long for the width breaks
  * at a space in its second half if there is one, otherwise at the width, and
@@ -61,6 +79,9 @@ export function flowCode(lines: string[], width: number): GuidedLine[] {
 }
 
 interface Cell {
+  /** The cell's text with its style marks. */
+  marked: string;
+  /** The text as shown, which sizes the columns. */
   text: string;
   column: number;
   span: number;
@@ -69,10 +90,13 @@ interface Cell {
 /** A row's cells, each covering its column and any SPANNED_CELL columns after it. */
 function rowCells(row: string[]): Cell[] {
   const cells: Cell[] = [];
-  row.forEach((text, column) => {
+  row.forEach((raw, column) => {
     const last = cells[cells.length - 1];
-    if (text === SPANNED_CELL && last) last.span++;
-    else cells.push({ text: text === SPANNED_CELL ? '' : text, column, span: 1 });
+    if (raw === SPANNED_CELL && last) last.span++;
+    else {
+      const marked = raw === SPANNED_CELL ? '' : raw;
+      cells.push({ marked, text: parseStyles(marked).text, column, span: 1 });
+    }
   });
   return cells;
 }
@@ -131,8 +155,8 @@ export function flowTable(headerRows: number, rowLines: string[], width: number)
     return rows.flatMap((row, r) =>
       row
         .filter((cell) => cell.text)
-        .flatMap((cell) => wrapWords(cell.text, width))
-        .map((text, k) => ({ text, type: 'table' as const, rowStart: k === 0, tableHeader: r < headerRows })),
+        .flatMap((cell) => wrapStyled(cell.marked, width))
+        .map((line, k) => ({ ...line, type: 'table' as const, rowStart: k === 0, tableHeader: r < headerRows })),
     );
   }
 
@@ -147,14 +171,23 @@ export function flowTable(headerRows: number, rowLines: string[], width: number)
   }
   const out: GuidedLine[] = [];
   rows.forEach((row, r) => {
-    const cells = row.map((cell) => wrapWords(cell.text, cellWidth(cell)));
+    const cells = row.map((cell) => wrapStyled(cell.marked, cellWidth(cell)));
     const height = Math.max(1, ...cells.map((lines) => lines.length));
     for (let k = 0; k < height; k++) {
-      const text = cells
-        .map((lines, i) => (lines[k] ?? '').padEnd(cellWidth(row[i]!)))
-        .join(' '.repeat(COLUMN_GAP))
-        .trimEnd();
-      out.push({ text, type: 'table', rowStart: k === 0, tableHeader: r < headerRows });
+      let text = '';
+      const styles: StyleRun[] = [];
+      cells.forEach((lines, i) => {
+        if (i > 0) text += ' '.repeat(COLUMN_GAP);
+        styles.push(...(shiftRuns(lines[k]?.styles, text.length) ?? []));
+        text += (lines[k]?.text ?? '').padEnd(cellWidth(row[i]!));
+      });
+      out.push({
+        text: text.trimEnd(),
+        type: 'table',
+        rowStart: k === 0,
+        tableHeader: r < headerRows,
+        ...(styles.length > 0 && { styles }),
+      });
     }
   });
   return out;
