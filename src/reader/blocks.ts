@@ -5,26 +5,28 @@
 
 import { CELL_SEPARATOR, EMPTY_CODE_LINE, SPANNED_CELL } from '../epub/content';
 import type { GuidedLine } from './saccade';
+import { fitIndex, padColumns, textColumns } from './columns';
 import { lineStyles, parseStyles, shiftRuns, type StyleRun } from './styledText';
 
 const COLUMN_GAP = 2;
 /** Below this many characters per column, a table is read row by row instead. */
 const MIN_COLUMN_WIDTH = 4;
 
-/** Split text into chunks of at most `width` characters, breaking long words. */
+/** Split text into chunks of at most `width` columns (see columns.ts), breaking long words. */
 export function wrapWords(text: string, width: number): string[] {
   const lines: string[] = [];
   let current = '';
   for (let word of text.split(/\s+/).filter(Boolean)) {
-    while (word.length > width) {
+    while (textColumns(word) > width) {
       if (current) lines.push(current);
       current = '';
-      lines.push(word.slice(0, width));
-      word = word.slice(width);
+      const cut = fitIndex(word, width);
+      lines.push(word.slice(0, cut));
+      word = word.slice(cut);
     }
     if (!word) continue;
     const joined = current ? `${current} ${word}` : word;
-    if (joined.length <= width) {
+    if (textColumns(joined) <= width) {
       current = joined;
     } else {
       lines.push(current);
@@ -65,8 +67,8 @@ export function flowCode(lines: string[], width: number): GuidedLine[] {
     const continuation = ' '.repeat(Math.min(indent + 2, Math.floor(width / 2)));
     let rest = line;
     let prefix = '';
-    while (prefix.length + rest.length > width) {
-      const room = width - prefix.length;
+    while (prefix.length + textColumns(rest) > width) {
+      const room = fitIndex(rest, width - prefix.length);
       let cut = rest.lastIndexOf(' ', room);
       if (cut <= room / 2) cut = room;
       out.push({ text: prefix + rest.slice(0, cut).trimEnd(), type: 'code' });
@@ -107,11 +109,11 @@ function rowCells(row: string[]): Cell[] {
  */
 function columnWidths(rows: Cell[][], columns: number, available: number): number[] {
   const single = (i: number) => rows.flatMap((row) => row.filter((cell) => cell.column === i && cell.span === 1));
-  const natural = Array.from({ length: columns }, (_, i) => Math.max(1, ...single(i).map((cell) => cell.text.length)));
+  const natural = Array.from({ length: columns }, (_, i) => Math.max(1, ...single(i).map((cell) => textColumns(cell.text))));
   if (natural.reduce((a, b) => a + b, 0) <= available) return natural;
 
   const longestWord = Array.from({ length: columns }, (_, i) =>
-    Math.min(natural[i]!, Math.max(1, ...single(i).flatMap((cell) => cell.text.split(/\s+/).map((w) => w.length)))),
+    Math.min(natural[i]!, Math.max(1, ...single(i).flatMap((cell) => cell.text.split(/\s+/).map(textColumns)))),
   );
   const minimum = longestWord.reduce((a, b) => a + b, 0);
   if (minimum > available) {
@@ -166,7 +168,7 @@ export function flowTable(headerRows: number, rowLines: string[], width: number)
   // Give spanning cells any width left over, through the last column they cover.
   for (const cell of rows.flat().filter((c) => c.span > 1)) {
     const spare = available - widths.reduce((a, b) => a + b, 0);
-    const grow = Math.min(spare, cell.text.length - cellWidth(cell));
+    const grow = Math.min(spare, textColumns(cell.text) - cellWidth(cell));
     if (grow > 0) widths[cell.column + cell.span - 1]! += grow;
   }
   const out: GuidedLine[] = [];
@@ -179,7 +181,7 @@ export function flowTable(headerRows: number, rowLines: string[], width: number)
       cells.forEach((lines, i) => {
         if (i > 0) text += ' '.repeat(COLUMN_GAP);
         styles.push(...(shiftRuns(lines[k]?.styles, text.length) ?? []));
-        text += (lines[k]?.text ?? '').padEnd(cellWidth(row[i]!));
+        text += padColumns(lines[k]?.text ?? '', cellWidth(row[i]!));
       });
       out.push({
         text: text.trimEnd(),

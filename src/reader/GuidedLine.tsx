@@ -1,4 +1,5 @@
 import { memo, useMemo, type AnimationEvent, type CSSProperties, type ReactNode } from 'react';
+import { columnsAt, hasWide, textColumns } from './columns';
 import { pacedChars, type PageLine } from './layout';
 import { maskCodeLine, maskGenerationLine, type GenerationDifficulty } from './generationMask';
 import { calculateGuidedLineDuration, computeLineFixations } from './saccade';
@@ -73,7 +74,7 @@ function renderText(text: string, options: TextOptions): ReactNode {
   const { styles, fixations, ovp, alternate, masked, revealing, durationMs, playing } = options;
   const fixationOrdinal = new Map<number, number>();
   if (ovp !== 'none') fixations.forEach((charIndex, i) => fixationOrdinal.set(charIndex, i));
-  if (fixationOrdinal.size === 0 && !masked && !styles) return text;
+  if (fixationOrdinal.size === 0 && !masked && !styles && !hasWide(text)) return text;
 
   // The sweep covers the text after its indentation.
   const lead = indentOf(text);
@@ -101,6 +102,9 @@ function renderText(text: string, options: TextOptions): ReactNode {
   };
   for (let i = 0; i < text.length; i++) {
     const style = styleAt?.[i] ?? 0;
+    // A wide character (and its surrogate pair) fills exactly two columns.
+    const wide = columnsAt(text, i) === 2;
+    const char = wide ? text.slice(i, text.codePointAt(i)! > 0xffff ? i + 2 : i + 1) : text[i]!;
     if (style !== groupStyle) {
       endGroup();
       groupStyle = style;
@@ -108,30 +112,34 @@ function renderText(text: string, options: TextOptions): ReactNode {
     }
     const isMask = masked?.[i] === '_';
     const ordinal = fixationOrdinal.get(i);
-    if (!isMask && ordinal === undefined) {
-      run += text[i];
+    if (!isMask && ordinal === undefined && !wide) {
+      run += char;
       continue;
     }
     if (run) group.push(run);
     run = '';
+    const wideClass = wide ? ' wide' : '';
     if (isMask) {
       // The real letter, hidden, keeps the glyph's width and is what the reveal shows.
       group.push(
-        <span key={i} className={`mask${revealing ? ' mask-revealing' : ''}`} style={revealing ? timed(i) : undefined}>
-          {text[i]}
+        <span key={i} className={`mask${revealing ? ' mask-revealing' : ''}${wideClass}`} style={revealing ? timed(i) : undefined}>
+          {char}
         </span>,
       );
-    } else {
+    } else if (ordinal !== undefined) {
       group.push(
         <span
           key={i}
-          className={`ovp${alternate && ordinal! % 2 === 1 ? ' ovp-alt' : ''}${ovp === 'passing' ? ' ovp-passing' : ''}`}
+          className={`ovp${alternate && ordinal % 2 === 1 ? ' ovp-alt' : ''}${ovp === 'passing' ? ' ovp-passing' : ''}${wideClass}`}
           style={ovp === 'passing' ? timed(i) : undefined}
         >
-          {text[i]}
+          {char}
         </span>,
       );
+    } else {
+      group.push(<span key={i} className="wide">{char}</span>);
     }
+    i += char.length - 1;
   }
   endGroup();
   return parts;
@@ -234,7 +242,7 @@ export const GuidedLine = memo(function GuidedLine({
       {active && durationMs > 0 && (
         <span
           className={`sweep${quietSweep ? ' quiet' : ''}`}
-          style={{ left: `calc(${lead}ch + var(--sweep-inset, 0px))`, width: `${line.text.length - lead}ch` }}
+          style={{ left: `calc(${lead}ch + var(--sweep-inset, 0px))`, width: `${textColumns(line.text) - lead}ch` }}
           onAnimationEnd={finish}
         >
           <span className="sweep-bar" style={{ animationDuration: `${durationMs}ms`, animationPlayState: playState }} />

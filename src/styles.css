@@ -423,6 +423,14 @@ button, select {
 
 /* Inline styles. A monospace face gives every glyph the same advance in
    italic and bold, so styling never moves text off the character grid. */
+/* East Asian wide characters come from a proportional fallback font; a
+   two-column box keeps them, and the text after them, on the grid. */
+.wide {
+  display: inline-block;
+  width: 2ch;
+  text-align: center;
+}
+
 .s-italic {
   font-style: italic;
 }
