@@ -34,4 +34,4 @@ The home-screen icon is drawn in `public/icon.svg`; `scripts/make-icons.sh` re-r
 
 ## License
 
-Apache-2.0, same as Reader. See `LICENSE`.
+MIT. See `LICENSE`.
