@@ -1,4 +1,5 @@
 import {
+  composeCedillas,
   convertBody,
   segmentContent,
   segmentHasText,
@@ -57,8 +58,17 @@ interface TocEntry {
  * 2: code blocks, tables, callouts, merged title stubs.
  * 3: inline styles; chapter summaries with reading lengths.
  * 4: math as text; display equation images sized as equations.
+ * 5: chapters a TOC labels with their file name titled from their text.
  */
-export const PARSER_VERSION = 4;
+export const PARSER_VERSION = 5;
+
+/** A chapter's opening text this long or shorter can be its title. */
+const LEAD_TITLE_MAX_CHARS = 150;
+/** A title line ending in one of these words runs on into the next (The Journal of / Economic Perspectives). */
+const RUN_ON_WORDS = /\b(of|the|and|a|an|in|on|for|to)$/i;
+/** A line after the title this short, not ending a sentence, is its byline. */
+const BYLINE_MAX_CHARS = 100;
+const FOOTNOTE_MARKS = /[\s†‡*§]+$/;
 
 /** Spine files longer than this with no TOC-driven split get Reader's heading split. */
 const MONOLITHIC_CHAPTER_CHARS = 100_000;
@@ -131,7 +141,11 @@ export async function parseEpub(data: ArrayBuffer | Uint8Array): Promise<ParsedB
 
     // When the TOC split the file, its fragment entries title the later
     // segments; only an entry for the whole file can title the first.
-    const fileTitle = shallowestEntry(tocSplit ? fileEntries.filter((entry) => !entry.fragment) : fileEntries)?.label;
+    const fileLabel = shallowestEntry(tocSplit ? fileEntries.filter((entry) => !entry.fragment) : fileEntries)?.label;
+    // Some TOCs (InDesign exports, e.g. JEP) label each file with its own name:
+    // that file starts something new, titled by its opening text.
+    const namedByFile = fileLabel !== undefined && isFileName(fileLabel, spinePath);
+    const fileTitle = namedByFile ? undefined : fileLabel;
 
     segments.forEach((segment, index) => {
       if (segment.blocks.length === 0) return;
@@ -140,6 +154,7 @@ export async function parseEpub(data: ArrayBuffer | Uint8Array): Promise<ParsedB
         title: segment.title
           ?? (index === 0 ? fileTitle : undefined)
           ?? firstHeading(segment)
+          ?? (index === 0 && namedByFile ? leadTitle(segment) : undefined)
           ?? fallbackTitle(segment, chapters[chapters.length - 1]),
         content: segmentContent(segment),
       });
@@ -213,6 +228,11 @@ async function readToc(zip: ZipArchive, opf: Document, manifest: Map<string, Man
   return [];
 }
 
+/** A TOC entry's text, without the footnote mark some titles carry. */
+function tocLabel(el: Element | undefined): string {
+  return composeCedillas(collapseWhitespace(el?.textContent ?? '')).replace(FOOTNOTE_MARKS, '');
+}
+
 function readNavToc(doc: Document, baseDir: string): TocEntry[] {
   const navs = elementsByLocalName(doc, 'nav');
   const tocNav = navs.find((nav) => (nav.getAttribute('epub:type') ?? '').split(/\s+/).includes('toc')) ?? navs[0];
@@ -225,7 +245,7 @@ function readNavToc(doc: Document, baseDir: string): TocEntry[] {
       const children = childElements(li);
       const link = children.find((el) => localName(el) === 'a');
       const href = link?.getAttribute('href');
-      const label = collapseWhitespace(link?.textContent ?? '');
+      const label = tocLabel(link);
       if (href && label) entries.push({ ...resolvePath(baseDir, href), label, depth });
       const nested = children.find((el) => localName(el) === 'ol');
       if (nested) walk(nested, depth + 1);
@@ -244,7 +264,7 @@ function readNcxToc(doc: Document, baseDir: string): TocEntry[] {
     for (const point of childElements(parent).filter((el) => localName(el) === 'navpoint')) {
       const children = childElements(point);
       const labelEl = children.find((el) => localName(el) === 'navlabel');
-      const label = collapseWhitespace(labelEl?.textContent ?? '');
+      const label = tocLabel(labelEl);
       const src = children.find((el) => localName(el) === 'content')?.getAttribute('src');
       if (src && label) entries.push({ ...resolvePath(baseDir, src), label, depth });
       walk(point, depth + 1);
@@ -334,6 +354,31 @@ function shallowestEntry(entries: TocEntry[]): TocEntry | undefined {
 function fallbackTitle(segment: ContentSegment, previous: ParsedChapter | undefined): string {
   if (!previous) return segmentHasText(segment) ? 'Start' : 'Cover';
   return `${previous.title.replace(/ \(continued\)$/, '')} (continued)`;
+}
+
+/** A label that is just the file's name (01_Basu_333 for Text/01_Basu_333.xhtml, j_Galí for j_Gali.xhtml). */
+function isFileName(label: string, path: string): boolean {
+  const key = (text: string) => text.normalize('NFD').replace(/[\u0300-\u036f\s_-]/g, '').toLowerCase();
+  return key(label) === key(path.slice(path.lastIndexOf('/') + 1).replace(/\.[^.]*$/, ''));
+}
+
+/**
+ * A segment's opening text as its title, joining lines that run on, if it's
+ * short enough; with its byline, as TOCs that list both read (Title — Author).
+ */
+function leadTitle(segment: ContentSegment): string | undefined {
+  const lines = segment.blocks.filter((block) => !block.startsWith('[')).map((block) => stripStyles(block).replace(FOOTNOTE_MARKS, ''));
+  let title = '';
+  let next = 0;
+  while (next < lines.length) {
+    title = title ? `${title} ${lines[next++]}` : lines[next++]!;
+    if (!RUN_ON_WORDS.test(title)) break;
+  }
+  if (!title || title.length > LEAD_TITLE_MAX_CHARS) return undefined;
+  const byline = lines[next];
+  return byline && byline.length <= BYLINE_MAX_CHARS && /^\p{Lu}/u.test(byline) && !/[.!?:;]$/.test(byline)
+    ? `${title} — ${byline}`
+    : title;
 }
 
 function firstHeading(segment: ContentSegment): string | undefined {

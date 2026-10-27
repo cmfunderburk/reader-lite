@@ -45,6 +45,7 @@ describe('convertBody', () => {
 
   test('composes spacing cedillas onto their letter', () => {
     expect(content('<p>Elsby and S<span>¸</span>ahin</p>')).toBe('Elsby and Şahin');
+    expect(content('<p>Ay¸segül ¸Sahin, Ays¸egül, Ay ¸ segül, Barı ¸ s, Economy¸ and</p>')).toBe('Ayşegül Şahin, Ayşegül, Ayşegül, Barış, Economy¸ and');
   });
 
   test('turns images into figure markers with figcaption or alt captions', () => {

@@ -236,9 +236,26 @@ function closestTable(el: Element): Element | null {
   return null;
 }
 
-/** Spacing cedillas (InDesign: S¸ahin) composed onto their letter (Şahin). */
-function composeCedillas(text: string): string {
-  return text.includes('\u00b8') ? text.replace(/(\p{L})\u00b8/gu, '$1\u0327').normalize('NFC') : text;
+/** A letter with a cedilla, if it has a precomposed form (S → Ş). */
+function withCedilla(letter: string | undefined): string | undefined {
+  const composed = letter && (letter + '\u0327').normalize('NFC');
+  return composed && [...composed].length === 1 ? composed : undefined;
+}
+
+/**
+ * Spacing cedillas (InDesign) composed onto their letter: after it (S¸ahin),
+ * before it (Ay¸segül, ¸Sahin) or floating between spaces (Ay ¸ segül).
+ */
+export function composeCedillas(text: string): string {
+  if (!text.includes('\u00b8')) return text;
+  return text.replace(/(\p{L})?( ?)\u00b8( ?)(\p{L})?/gu, (match, before?: string, open?: string, close?: string, after?: string) => {
+    const ownBefore = !open && withCedilla(before);
+    if (ownBefore) return ownBefore + close + (after ?? '');
+    const ownAfter = withCedilla(after);
+    if (ownAfter && !close) return (before ?? '') + open + ownAfter;
+    if (ownAfter && open && close && before) return before + ownAfter;
+    return match;
+  });
 }
 
 export function segmentHasText(segment: ContentSegment): boolean {
