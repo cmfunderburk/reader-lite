@@ -152,6 +152,13 @@ function renderText(text: string, options: TextOptions): ReactNode {
 
 function Figure({ line, bookId, height }: { line: PageLine; bookId: string; height: number }) {
   const url = useAssetUrl(bookId, line.figureSrc);
+  if (line.equationEm !== undefined) {
+    return (
+      <div className="figure-image equation">
+        {url && <img src={url} alt={line.text} style={{ height: `${line.equationEm}em` }} draggable={false} />}
+      </div>
+    );
+  }
   return (
     <>
       <div className="figure-image">{url && <img src={url} alt={line.figureCaption ?? ''} draggable={false} />}</div>

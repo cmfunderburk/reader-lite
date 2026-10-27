@@ -56,8 +56,9 @@ interface TocEntry {
  * by an older version are re-parsed from their stored file.
  * 2: code blocks, tables, callouts, merged title stubs.
  * 3: inline styles; chapter summaries with reading lengths.
+ * 4: math as text; display equation images sized as equations.
  */
-export const PARSER_VERSION = 3;
+export const PARSER_VERSION = 4;
 
 /** Spine files longer than this with no TOC-driven split get Reader's heading split. */
 const MONOLITHIC_CHAPTER_CHARS = 100_000;

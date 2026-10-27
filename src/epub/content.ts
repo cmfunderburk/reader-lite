@@ -3,6 +3,9 @@
 // [FIGURE caption] markers, and code and table blocks (see
 // flowTextIntoLines). Inline formatting is kept as style marks (below).
 //
+// Math is read as text (see mathml.ts), except a display equation drawn as an
+// image, which stays a figure: [FIGURE_URL:…] then [FIGURE_EQN <height em> <text>].
+//
 // Code and table blocks are laid out by the reader for the current line
 // width, so they keep their structure here:
 //   [CODE]                  [TABLE <header rows>]
@@ -12,6 +15,7 @@
 // table cells are separated by the ASCII unit separator, and the columns a
 // colspan cell covers after its first hold SPANNED_CELL.
 
+import { mathFromAlt, mathText } from './mathml';
 import { childElements, collapseWhitespace, localName } from './xml';
 
 export interface ContentSegment {
@@ -43,6 +47,9 @@ export const LIST_MARKER = '[LIST]';
  */
 export const CALLOUT_START = '[CALLOUT ';
 export const CALLOUT_END = '[/CALLOUT]';
+export const EQUATION_MARKER = '[FIGURE_EQN';
+/** Height of an equation image whose style doesn't give one. */
+const DEFAULT_EQUATION_EM = 2;
 
 /**
  * Inline styles. Each has a control character that turns it on and off
@@ -158,6 +165,19 @@ function calloutText(el: Element): string | undefined {
   return /^\d{1,2}$/.test(alt) ? `(${alt})` : undefined;
 }
 
+/** Text around an element in its block, other than punctuation and equation numbers: is the element inline? */
+function hasTextAround(el: Element): boolean {
+  let block = el.parentElement;
+  while (block && !BLOCKS.has(localName(block))) block = block.parentElement;
+  return /[\p{L}\p{N}]/u.test((block?.textContent ?? '').replace(/\(\d+[a-z]?\)/g, ''));
+}
+
+/** An image's height in em, from its inline style (InDesign sizes equations this way). */
+function styleHeightEm(el: Element): number | undefined {
+  const match = /(?:^|;)\s*height\s*:\s*(\d+(?:\.\d+)?)em/i.exec(el.getAttribute('style') ?? '');
+  return match ? Number(match[1]) : undefined;
+}
+
 function isIcon(el: Element): boolean {
   // Only pixel sizes: `width="30%"` or `height="10em"` says nothing about icons.
   const size = (attr: string) => {
@@ -214,6 +234,11 @@ function closestTable(el: Element): Element | null {
     if (localName(parent) === 'table') return parent;
   }
   return null;
+}
+
+/** Spacing cedillas (InDesign: S¸ahin) composed onto their letter (Şahin). */
+function composeCedillas(text: string): string {
+  return text.includes('\u00b8') ? text.replace(/(\p{L})\u00b8/gu, '$1\u0327').normalize('NFC') : text;
 }
 
 export function segmentHasText(segment: ContentSegment): boolean {
@@ -292,7 +317,7 @@ class Converter {
     if (name === 'img' || name === 'image') return this.image(el);
     if (name === 'figure') return this.figure(el);
     if (name === 'math') {
-      this.inline += ` ${el.getAttribute('alttext') ?? el.textContent ?? ''} `;
+      this.inline += ` ${mathText(el) || el.getAttribute('alttext') || ''} `;
       return;
     }
     if (name === 'br' || name === 'td' || name === 'th') {
@@ -340,7 +365,7 @@ class Converter {
    */
   private takeInline(): string {
     const marks = this.openMarks();
-    const text = collapseStyled(this.inline + marks);
+    const text = collapseStyled(composeCedillas(this.inline + marks));
     this.inline = marks;
     return stripStyles(text).trim() ? text : '';
   }
@@ -354,6 +379,8 @@ class Converter {
   }
 
   private image(el: Element): void {
+    const math = mathFromAlt(el.getAttribute('alt') ?? '');
+    if (math) return this.mathImage(el, mathText(math));
     if (isIcon(el)) {
       const callout = calloutText(el);
       if (callout) this.inline += ` ${callout} `;
@@ -369,6 +396,20 @@ class Converter {
     const caption = this.pendingCaption ?? altCaption(el);
     this.pendingCaption = undefined;
     if (caption) this.current.blocks.push(`[FIGURE ${caption}]`);
+  }
+
+  /** A formula drawn as an image: text in a sentence, a figure on its own. */
+  private mathImage(el: Element, text: string): void {
+    const src = el.getAttribute('src');
+    const path = src ? this.options.resolveImage(src) : undefined;
+    if (!path || hasTextAround(el)) {
+      this.inline += text;
+      return;
+    }
+    this.flushInline();
+    this.flushTerm();
+    this.current.blocks.push(`[FIGURE_URL:${ASSET_SCHEME}${path}]`);
+    this.current.blocks.push(`${EQUATION_MARKER} ${styleHeightEm(el) ?? DEFAULT_EQUATION_EM} ${sanitizeCaption(text)}]`);
   }
 
   private figure(el: Element): void {
@@ -477,6 +518,12 @@ class Converter {
   }
 
   private pushText(text: string): void {
+    // The punctuation that ended a display equation's sentence, left behind it.
+    const last = this.current.blocks[this.current.blocks.length - 1];
+    if (last?.startsWith(EQUATION_MARKER)) {
+      text = text.replace(/^[.,;:]\s*/, '');
+      if (!stripStyles(text).trim()) return;
+    }
     if (this.pendingTerm) {
       text = `${this.pendingTerm} ${text}`;
       this.pendingTerm = undefined;
