@@ -170,7 +170,7 @@ function maskSingleCoreWord(core: string, maxMaskRatio: number, seed: string): s
   const maskSet = selectNonConsecutiveIndices(maskCandidates, maskCount, seed);
   if (maskSet.size === 0) return core;
 
-  const chars = [...core];
+  const chars = core.split(''); // code units, as `letters` indexes them
   for (const letterIndex of letters) {
     if (!maskSet.has(letterIndex)) continue;
     chars[letterIndex] = '_';
@@ -202,7 +202,7 @@ function maskSingleCoreWordToFirstLast(core: string): string {
 
   const first = letters[0];
   const last = letters[letters.length - 1];
-  const chars = [...core];
+  const chars = core.split(''); // code units, as `letters` indexes them
 
   for (const letterIndex of letters) {
     if (letterIndex === first || letterIndex === last) continue;

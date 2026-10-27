@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { EMPTY_CODE_LINE } from '../epub/content';
 import { layoutChapter, pageIndexForOffset, visibleChars } from './layout';
 
 const CHAPTER = [
@@ -48,6 +49,13 @@ describe('pageIndexForOffset', () => {
     expect(pageIndexForOffset(pages, 100)).toBe(1);
     expect(pageIndexForOffset(pages, 10_000)).toBe(2);
   });
+});
+
+test('pages with nothing visible are dropped, so every page is reachable', () => {
+  const code = ['[CODE]', 'x = 1', ...Array<string>(10).fill(EMPTY_CODE_LINE), 'y = 2'].join('\n');
+  const { pages } = layoutChapter(['Before.', code, 'After.'].join('\n\n'), 40, 4);
+  expect(pages.map((page) => pageIndexForOffset(pages, page.startOffset))).toEqual(pages.map((_, i) => i));
+  expect(pages.flatMap((page) => page.lines.map((line) => line.text))).toContain('y = 2');
 });
 
 test('visibleChars ignores whitespace', () => {

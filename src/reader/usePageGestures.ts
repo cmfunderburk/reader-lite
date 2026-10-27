@@ -9,7 +9,7 @@ export type TapZone = 'left' | 'middle' | 'right';
 interface GestureHandlers {
   onTap: (zone: TapZone) => void;
   onSwipe: (direction: 'next' | 'previous') => void;
-  onLongPress: (target: Element | null) => void;
+  onLongPress: (x: number, y: number) => void;
 }
 
 interface Press {
@@ -18,14 +18,22 @@ interface Press {
   y: number;
   timer: ReturnType<typeof setTimeout>;
   longPressed: boolean;
+  /** The page the press started on. */
+  page: string;
 }
 
 /**
  * Kindle-style page gestures: tap the left/right third to turn pages, the
  * middle to toggle toolbars, swipe to turn, long-press to pick a line.
+ *
+ * A press that outlives its page (the pacer turned it mid-tap) is dropped:
+ * it was aimed at text that's gone, and acting on it would turn a second page
+ * or pick a line on the new one.
  */
-export function usePageGestures({ onTap, onSwipe, onLongPress }: GestureHandlers) {
+export function usePageGestures({ onTap, onSwipe, onLongPress }: GestureHandlers, page: string) {
   const press = useRef<Press | null>(null);
+  const currentPage = useRef(page);
+  currentPage.current = page;
 
   const cancel = () => {
     if (press.current) clearTimeout(press.current.timer);
@@ -38,11 +46,11 @@ export function usePageGestures({ onTap, onSwipe, onLongPress }: GestureHandlers
       cancel();
       const { clientX: x, clientY: y, pointerId: id } = event;
       const timer = setTimeout(() => {
-        if (!press.current) return;
+        if (press.current?.id !== id) return;
         press.current.longPressed = true;
-        onLongPress(document.elementFromPoint(x, y));
+        if (press.current.page === currentPage.current) onLongPress(x, y);
       }, LONG_PRESS_MS);
-      press.current = { id, x, y, timer, longPressed: false };
+      press.current = { id, x, y, timer, longPressed: false, page };
     },
     onPointerMove(event: PointerEvent<HTMLElement>) {
       const current = press.current;
@@ -55,7 +63,7 @@ export function usePageGestures({ onTap, onSwipe, onLongPress }: GestureHandlers
       const current = press.current;
       if (!current || current.id !== event.pointerId) return;
       cancel();
-      if (current.longPressed) return;
+      if (current.longPressed || current.page !== currentPage.current) return;
 
       const dx = event.clientX - current.x;
       const dy = event.clientY - current.y;

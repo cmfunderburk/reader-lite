@@ -21,13 +21,19 @@ import { importErrorMessage, importSource } from './importBook';
 const BOOKS_FOLDER = 'books/';
 const today = () => new Date().toISOString().slice(0, 10);
 
-export async function exportReadingState(settings: unknown): Promise<File> {
-  const state = await collectState(settings);
-  await putSetting(LAST_EXPORT_KEY, state.exportedAt);
-  return new File([JSON.stringify(state, null, 1)], `reader-lite-state-${today()}.json`, { type: 'application/json' });
+/** An export ready to hand over; it counts as the last export only once saved (see saveExport). */
+export interface Export {
+  file: File;
+  exportedAt: number;
 }
 
-export async function exportEverything(settings: unknown): Promise<File> {
+export async function exportReadingState(settings: unknown): Promise<Export> {
+  const state = await collectState(settings);
+  const file = new File([JSON.stringify(state, null, 1)], `reader-lite-state-${today()}.json`, { type: 'application/json' });
+  return { file, exportedAt: state.exportedAt };
+}
+
+export async function exportEverything(settings: unknown): Promise<Export> {
   const state = await collectState(settings);
   const entries: ZipEntryInput[] = [{ name: BACKUP_STATE_FILE, data: new TextEncoder().encode(JSON.stringify(state, null, 1)) }];
   // Today's article joins the library only once opened; restored without its date, an unopened one would never show or be cleared.
@@ -36,8 +42,13 @@ export async function exportEverything(settings: unknown): Promise<File> {
     // The file name is only for people browsing the zip; restore goes by content.
     if (file) entries.push({ name: `${BOOKS_FOLDER}${book.id}/${file.name.replaceAll('/', '_')}`, data: new Uint8Array(file.data) });
   }
-  await putSetting(LAST_EXPORT_KEY, state.exportedAt);
-  return new File(storedZipParts(entries), `reader-lite-backup-${today()}.zip`, { type: 'application/zip' });
+  const file = new File(storedZipParts(entries), `reader-lite-backup-${today()}.zip`, { type: 'application/zip' });
+  return { file, exportedAt: state.exportedAt };
+}
+
+/** Save an export and, unless the share sheet was closed, record it as the last one. */
+export async function saveExport({ file, exportedAt }: Export): Promise<void> {
+  if (await saveFile(file)) await putSetting(LAST_EXPORT_KEY, exportedAt);
 }
 
 export interface RestoreResult extends RestoreSummary {
@@ -88,17 +99,17 @@ export function restoreErrorMessage(err: unknown): string {
 
 /**
  * Hand a file to the user: the share sheet where there is one (iPad: Save to
- * Files), else a download.
+ * Files), else a download. False if the share sheet was closed without saving.
  */
-export async function saveFile(file: File): Promise<void> {
+export async function saveFile(file: File): Promise<boolean> {
   if (navigator.canShare?.({ files: [file] })) {
     try {
       await navigator.share({ files: [file] });
     } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') return; // closed the share sheet
+      if (err instanceof DOMException && err.name === 'AbortError') return false; // closed the share sheet
       throw err;
     }
-    return;
+    return true;
   }
   const url = URL.createObjectURL(file);
   const link = document.createElement('a');
@@ -106,4 +117,5 @@ export async function saveFile(file: File): Promise<void> {
   link.download = file.name;
   link.click();
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  return true;
 }

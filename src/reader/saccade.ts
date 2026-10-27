@@ -119,7 +119,12 @@ export function computeLineFixations(lineText: string, guidedLength: number): nu
     lastFixIdx = bestIdx;
   }
 
-  return fixations;
+  // Indices are UTF-16 code units: never mark half of a surrogate pair.
+  return fixations.map((pos) => (isLowSurrogate(lineText.charCodeAt(pos)) ? pos - 1 : pos));
+}
+
+function isLowSurrogate(code: number): boolean {
+  return code >= 0xdc00 && code <= 0xdfff;
 }
 
 const HEADING_PATTERN = /^(#{1,6})\s+(.+)$/;

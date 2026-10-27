@@ -159,7 +159,11 @@ function calloutText(el: Element): string | undefined {
 }
 
 function isIcon(el: Element): boolean {
-  const size = (attr: string) => Number.parseFloat(el.getAttribute(attr) ?? '');
+  // Only pixel sizes: `width="30%"` or `height="10em"` says nothing about icons.
+  const size = (attr: string) => {
+    const match = /^\s*(\d+(?:\.\d+)?)\s*(?:px)?\s*$/i.exec(el.getAttribute(attr) ?? '');
+    return match ? Number(match[1]) : NaN;
+  };
   return size('width') <= ICON_MAX_PX || size('height') <= ICON_MAX_PX;
 }
 

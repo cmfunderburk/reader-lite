@@ -3,7 +3,7 @@ import { navigate } from '../route';
 import { sanitizeSettings, useSettings } from '../settings';
 import { deleteBook, getSetting, listBooks, listPositions, type BookRecord, type PositionRecord } from '../store/db';
 import { formatBytes, storageStatus, type StorageStatus } from '../store/persistence';
-import { exportEverything, exportReadingState, restoreBackup, restoreErrorMessage, saveFile, type RestoreResult } from './backup';
+import { exportEverything, exportReadingState, restoreBackup, restoreErrorMessage, saveExport, type RestoreResult } from './backup';
 import { LAST_EXPORT_KEY } from './backupState';
 import { isListed } from '../wikipedia/daily';
 import { WikipediaSection } from '../wikipedia/WikipediaSection';
@@ -83,7 +83,7 @@ function BackupSection({ bookCount, onRestored }: { bookCount: number; onRestore
 
   const onExport = (everything: boolean) =>
     run('Export', 'Preparing the export…', async () => {
-      await saveFile(everything ? await exportEverything(settings) : await exportReadingState(settings));
+      await saveExport(everything ? await exportEverything(settings) : await exportReadingState(settings));
       return null;
     });
 

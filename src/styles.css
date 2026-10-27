@@ -364,6 +364,10 @@ button, select {
 
 .page {
   margin: 0 auto;
+  /* Presses land on the page area, never on a line: the pacer remounts lines
+     as it moves, and WebKit sends the rest of a touch to the removed element,
+     so the gesture would never see it end. */
+  pointer-events: none;
 }
 
 .reader-note {

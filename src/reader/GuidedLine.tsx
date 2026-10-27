@@ -24,6 +24,8 @@ interface GuidedLineProps {
   state: LineState;
   bookId: string;
   wpm: number;
+  /** The active line holds this long before the sweep starts (a new page's first line). */
+  startDelayMs: number;
   playing: boolean;
   showOvp: boolean;
   alternateOvpColors: boolean;
@@ -60,6 +62,7 @@ interface TextOptions {
   /** Unmask letters as the sweep reaches them. */
   revealing: boolean;
   durationMs: number;
+  startDelayMs: number;
   playing: boolean;
 }
 
@@ -71,7 +74,7 @@ interface TextOptions {
  * the sweep, so the two stay in step.
  */
 function renderText(text: string, options: TextOptions): ReactNode {
-  const { styles, fixations, ovp, alternate, masked, revealing, durationMs, playing } = options;
+  const { styles, fixations, ovp, alternate, masked, revealing, durationMs, startDelayMs, playing } = options;
   const fixationOrdinal = new Map<number, number>();
   if (ovp !== 'none') fixations.forEach((charIndex, i) => fixationOrdinal.set(charIndex, i));
   if (fixationOrdinal.size === 0 && !masked && !styles && !hasWide(text)) return text;
@@ -80,7 +83,7 @@ function renderText(text: string, options: TextOptions): ReactNode {
   const lead = indentOf(text);
   const span = Math.max(1, text.length - lead);
   const timed = (charIndex: number): CSSProperties => ({
-    animationDelay: `${((charIndex - lead) / span) * durationMs}ms`,
+    animationDelay: `${startDelayMs + ((charIndex - lead) / span) * durationMs}ms`,
     animationPlayState: playing ? 'running' : 'paused',
   });
 
@@ -102,9 +105,10 @@ function renderText(text: string, options: TextOptions): ReactNode {
   };
   for (let i = 0; i < text.length; i++) {
     const style = styleAt?.[i] ?? 0;
-    // A wide character (and its surrogate pair) fills exactly two columns.
+    // Whole code points, so a surrogate pair is never split across spans.
+    // A wide character fills exactly two columns.
     const wide = columnsAt(text, i) === 2;
-    const char = wide ? text.slice(i, text.codePointAt(i)! > 0xffff ? i + 2 : i + 1) : text[i]!;
+    const char = text.slice(i, text.codePointAt(i)! > 0xffff ? i + 2 : i + 1);
     if (style !== groupStyle) {
       endGroup();
       groupStyle = style;
@@ -114,6 +118,7 @@ function renderText(text: string, options: TextOptions): ReactNode {
     const ordinal = fixationOrdinal.get(i);
     if (!isMask && ordinal === undefined && !wide) {
       run += char;
+      i += char.length - 1;
       continue;
     }
     if (run) group.push(run);
@@ -161,6 +166,7 @@ export const GuidedLine = memo(function GuidedLine({
   state,
   bookId,
   wpm,
+  startDelayMs,
   playing,
   showOvp,
   alternateOvpColors,
@@ -189,6 +195,7 @@ export const GuidedLine = memo(function GuidedLine({
 
   const active = state === 'active';
   const durationMs = active ? lineDurationMs(line, wpm) : 0;
+  const delayMs = active ? startDelayMs : 0;
   const playState = playing ? 'running' : 'paused';
   const finish = (event: AnimationEvent) => {
     if (event.animationName === 'sweep' || event.animationName === 'pacer-dwell') onDone(index);
@@ -218,7 +225,7 @@ export const GuidedLine = memo(function GuidedLine({
         {active && (
           <span
             className="pacer-dwell"
-            style={{ animationDuration: `${durationMs}ms`, animationPlayState: playState }}
+            style={{ animationDuration: `${durationMs}ms`, animationDelay: `${delayMs}ms`, animationPlayState: playState }}
             onAnimationEnd={finish}
           />
         )}
@@ -245,7 +252,10 @@ export const GuidedLine = memo(function GuidedLine({
           style={{ left: `calc(${lead}ch + var(--sweep-inset, 0px))`, width: `${textColumns(line.text) - lead}ch` }}
           onAnimationEnd={finish}
         >
-          <span className="sweep-bar" style={{ animationDuration: `${durationMs}ms`, animationPlayState: playState }} />
+          <span
+            className="sweep-bar"
+            style={{ animationDuration: `${durationMs}ms`, animationDelay: `${delayMs}ms`, animationPlayState: playState }}
+          />
         </span>
       )}
       {renderText(line.text, {
@@ -256,6 +266,7 @@ export const GuidedLine = memo(function GuidedLine({
         masked: keepMasked ? masked : null,
         revealing: active && sweepReveal,
         durationMs,
+        startDelayMs: delayMs,
         playing,
       })}
     </div>

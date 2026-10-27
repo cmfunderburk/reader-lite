@@ -28,14 +28,19 @@ interface Position {
   offset: number;
 }
 
+
 /** Offset past any chapter's end: resolves to the chapter's last page. */
 const CHAPTER_END = Number.MAX_SAFE_INTEGER;
+
+/** On a new page the pacer waits this long, so the eyes can get back to the top. */
+const PAGE_START_DELAY_MS = 1000;
 
 /** Pacer time from line `fromLine` of page `fromPage` to the chapter's end. */
 function msToChapterEnd(pages: Page[], fromPage: number, fromLine: number, wpm: number): number {
   let ms = 0;
   for (let p = fromPage; p < pages.length; p++) {
     const lines = pages[p]!.lines;
+    if (p > fromPage) ms += PAGE_START_DELAY_MS;
     for (let i = p === fromPage ? fromLine : 0; i < lines.length; i++) {
       if (isPacedLine(lines[i]!)) ms += lineDurationMs(lines[i]!, wpm);
     }
@@ -59,6 +64,8 @@ export function ReaderView({ bookId }: { bookId: string }) {
   const [pacerLine, setPacerLine] = useState(0);
   // Bumped to restart the active line's animation (new line, resync, new page).
   const [runId, setRunId] = useState(0);
+  // The active line is a new page's first: hold the sweep for PAGE_START_DELAY_MS.
+  const [pageStart, setPageStart] = useState(false);
   const [toolbars, setToolbars] = useState(false);
   // Generation mode: show the page unmasked until it's turned.
   const [revealed, setRevealed] = useState(false);
@@ -141,8 +148,10 @@ export function ReaderView({ bookId }: { bookId: string }) {
     if (toggle !== null && samePage) {
       const next = firstPacedLine(page, toggle + 1);
       setPacerLine(next >= 0 ? next : Math.max(0, firstPacedLine(page)));
+      setPageStart(false);
     } else {
       setPacerLine(Math.max(0, firstPacedLine(page)));
+      setPageStart(true);
       setRevealed(false);
     }
     setRunId((n) => n + 1);
@@ -182,6 +191,7 @@ export function ReaderView({ bookId }: { bookId: string }) {
       const next = firstPacedLine(page, index + 1);
       if (next !== -1) {
         setPacerLine(next);
+        setPageStart(false);
         setRunId((n) => n + 1);
       } else if (!turnPage(1)) {
         setPacer('off'); // end of the book
@@ -189,6 +199,16 @@ export function ReaderView({ bookId }: { bookId: string }) {
     },
     [page, turnPage],
   );
+
+  // A page with nothing to sweep (only collapsed callouts, say) holds for the
+  // page-start pause, then turns.
+  useEffect(() => {
+    if (pacer !== 'playing' || !page || firstPacedLine(page) !== -1) return;
+    const timer = setTimeout(() => {
+      if (!turnPage(1)) setPacer('off');
+    }, PAGE_START_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [pacer, page, turnPage]);
 
   const sharedWpm = book?.format === 'wikipedia';
   const changeWpm = useCallback(
@@ -251,8 +271,13 @@ export function ReaderView({ bookId }: { bookId: string }) {
       else setToolbars((shown) => !shown);
     },
     onSwipe: (direction) => turnPage(direction === 'next' ? 1 : -1),
-    onLongPress: (target) => {
-      const lineEl = target?.closest<HTMLElement>('[data-line]');
+    onLongPress: (_x, y) => {
+      // Lines don't take pointer events (see .page), so find the one by position.
+      const lineEls = pageAreaRef.current?.querySelectorAll<HTMLElement>('[data-line]') ?? [];
+      const lineEl = Array.from(lineEls).find((el) => {
+        const rect = el.getBoundingClientRect();
+        return y >= rect.top && y < rect.bottom;
+      });
       const index = Number(lineEl?.dataset.line ?? NaN);
       const line = page?.lines[index];
       if (!line || !position) return;
@@ -268,10 +293,11 @@ export function ReaderView({ bookId }: { bookId: string }) {
       }
       if (!isPacedLine(line)) return;
       setPacerLine(index);
+      setPageStart(false);
       setRunId((n) => n + 1);
       setPacer((state) => (state === 'off' ? 'paused' : state));
     },
-  });
+  }, `${position?.chapter}:${page?.startOffset}`);
 
   if (book === null) {
     return (
@@ -314,6 +340,7 @@ export function ReaderView({ bookId }: { bookId: string }) {
                 state={lineState(index)}
                 bookId={bookId}
                 wpm={wpm}
+                startDelayMs={pageStart ? PAGE_START_DELAY_MS : 0}
                 playing={pacer === 'playing'}
                 showOvp={settings.showOvp}
                 alternateOvpColors={settings.alternateOvpColors}

@@ -35,10 +35,11 @@ export function layoutChapter(
     return placed;
   });
 
-  const pages = groupIntoPages(lines, linesPerPage, charsPerLine).map((pageLines) => ({
-    lines: pageLines,
-    startOffset: pageLines[0]!.offset,
-  }));
+  const pages = groupIntoPages(lines, linesPerPage, charsPerLine)
+    .map((pageLines) => ({ lines: pageLines, startOffset: pageLines[0]!.offset }))
+    // A page that starts where the next one does holds nothing visible (blank
+    // or empty code lines). Offsets can't address it, so drop it.
+    .filter((page, i, all) => all[i + 1]?.startOffset !== page.startOffset);
   return { pages: pages.length > 0 ? pages : [{ lines: [], startOffset: 0 }], totalChars: offset };
 }
 

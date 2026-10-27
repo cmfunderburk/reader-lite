@@ -37,6 +37,14 @@ describe('convertBody', () => {
     );
   });
 
+  test('only pixel sizes mark an image as an icon', () => {
+    expect(content('<p><img src="a.png" alt="A map" width="30%"/></p>', ['a.png'])).toBe(
+      '[FIGURE_URL:asset:OEBPS/a.png]\n\n[FIGURE A map]',
+    );
+    expect(content('<p><img src="a.png" alt="A map" height="10em"/></p>', ['a.png'])).toContain('[FIGURE_URL:');
+    expect(content('<p>Go <img src="a.png" alt="A map" width="16px"/> on</p>', ['a.png'])).not.toContain('[FIGURE_URL:');
+  });
+
   test('ignores placeholder alt text and images missing from the book', () => {
     expect(content('<img src="a.png" alt="image"/><img src="gone.png" alt="Gone"/>', ['a.png'])).toBe(
       '[FIGURE_URL:asset:OEBPS/a.png]',

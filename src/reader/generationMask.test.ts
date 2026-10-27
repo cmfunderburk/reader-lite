@@ -214,3 +214,13 @@ describe('maskCodeLine', () => {
     expect(maskCodeLine(line, 'recall', 1, 0)).toBe('SELECT c______r_id FROM o____s');
   });
 });
+
+describe('maskGenerationLine with surrogate pairs', () => {
+  it('keeps masks aligned after characters outside the BMP', () => {
+    const line = 'the 𝑥𝑦abcdefgh word';
+    const masked = maskGenerationLine(line, 'hard', 1, 0);
+    expect(masked.length).toBe(line.length);
+    expect(masked.slice(0, 8)).toBe('the 𝑥𝑦');
+    expect(masked[15]).toBe('h'); // the word's last letter stays
+  });
+});

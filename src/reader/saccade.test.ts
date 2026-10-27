@@ -75,6 +75,18 @@ describe('computeLineFixations', () => {
   });
 });
 
+describe('computeLineFixations around surrogate pairs', () => {
+  it('never lands on the second half of a pair', () => {
+    const line = 'Let (𝑥𝑦) be 𝑥𝑦𝑧 and 𝑥 again in this line';
+    for (const length of [7, 10, 13]) {
+      for (const pos of computeLineFixations(line, length)) {
+        const code = line.charCodeAt(pos);
+        expect(code >= 0xdc00 && code <= 0xdfff).toBe(false);
+      }
+    }
+  });
+});
+
 describe('figure handling', () => {
   it('parses direct figure URLs with captions', () => {
     const lines = flowTextIntoLines('[FIGURE_URL:asset:OEBPS/a.jpg]\n\n[FIGURE Example lead image.]', 80);
