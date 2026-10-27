@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Source for the home-screen icons; scripts/make-icons.sh renders the PNGs. -->
+  <defs>
+    <linearGradient id="sweep" x1="0" x2="1">
+      <stop offset="0" stop-color="#286edc" stop-opacity="0"/>
+      <stop offset="1" stop-color="#286edc" stop-opacity="0.38"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" fill="#fbfaf7"/>
+  <rect x="150" y="452" width="490" height="120" fill="url(#sweep)"/>
+  <rect x="632" y="452" width="10" height="120" fill="#286edc" fill-opacity="0.75"/>
+  <g fill="#1d1d1b">
+    <rect x="196" y="252" width="632" height="40" rx="20"/>
+    <rect x="196" y="372" width="596" height="40" rx="20"/>
+    <rect x="196" y="492" width="632" height="40" rx="20"/>
+    <rect x="196" y="612" width="560" height="40" rx="20"/>
+    <rect x="196" y="732" width="372" height="40" rx="20"/>
+  </g>
+  <g fill="#c2410c">
+    <rect x="712" y="492" width="44" height="40" rx="8"/>
+    <rect x="300" y="612" width="44" height="40" rx="8"/>
+    <rect x="590" y="612" width="44" height="40" rx="8"/>
+    <rect x="420" y="732" width="44" height="40" rx="8"/>
+  </g>
+</svg>
