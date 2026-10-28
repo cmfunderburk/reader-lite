@@ -1,7 +1,7 @@
 // Tests copied from Reader@f2d4f14 src/lib/saccade.test.ts for the functions
 // kept here, adapted to the trimmed signatures.
 import { describe, expect, it } from 'bun:test';
-import { calculateGuidedLineDuration, computeLineFixations, flowTextIntoLines, groupIntoPages } from './saccade';
+import { calculateGuidedLineDuration, computeLineFixations, flowTextIntoLines, groupIntoPages, lineSpan } from './saccade';
 
 describe('calculateGuidedLineDuration', () => {
   it('returns 0 for empty text or zero WPM', () => {
@@ -88,6 +88,14 @@ describe('computeLineFixations around surrogate pairs', () => {
 });
 
 describe('figure handling', () => {
+  it('sizes display equations by their height, not as figures', () => {
+    const [line] = flowTextIntoLines('[FIGURE_URL:asset:OEBPS/1.jpg]\n\n[FIGURE_EQN 1.845 (F_L L)/Y = μ WL/PY]', 80);
+    expect(line).toMatchObject({ type: 'figure', figureSrc: 'asset:OEBPS/1.jpg', equationEm: 1.845, text: '(F_L L)/Y = μ WL/PY' });
+    expect(line!.figureCaption).toBeUndefined();
+    // 1.845em is about 1.1 lines, plus half a line above and below.
+    expect(lineSpan(line!, 30, 80)).toBe(3);
+  });
+
   it('parses direct figure URLs with captions', () => {
     const lines = flowTextIntoLines('[FIGURE_URL:asset:OEBPS/a.jpg]\n\n[FIGURE Example lead image.]', 80);
     expect(lines).toHaveLength(1);

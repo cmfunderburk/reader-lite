@@ -12,6 +12,8 @@ import { calculateORP, normalizeText, wordPenalty } from './tokenizer';
 export const GUIDED_FIGURE_MIN_LINE_SPAN_RATIO = 0.28;
 export const GUIDED_FIGURE_MIN_LINE_SPAN_FLOOR = 5;
 export const GUIDED_FIGURE_CAPTION_EXTRA_SPAN_MAX = 3;
+/** Text line height in em (usePageMetrics' LINE_HEIGHT_RATIO), for sizing equations in lines. */
+const LINE_HEIGHT_EM = 1.7;
 
 export type GuidedLineType = 'body' | 'heading' | 'blank' | 'figure' | 'code' | 'table' | 'toggle';
 
@@ -21,6 +23,8 @@ export interface GuidedLine {
   level?: number;  // 1-6 for headings
   figureSrc?: string;
   figureCaption?: string;
+  /** A display equation's height in em; its text is the equation as text. */
+  equationEm?: number;
   /** Table lines: the first line of a row, and rows in the table's header. */
   rowStart?: boolean;
   tableHeader?: boolean;
@@ -130,6 +134,7 @@ function isLowSurrogate(code: number): boolean {
 const HEADING_PATTERN = /^(#{1,6})\s+(.+)$/;
 const FIGURE_URL_PATTERN = /^\[FIGURE_URL:(.+)\]$/i;
 const FIGURE_CAPTION_PATTERN = /^\[FIGURE\s+(.+)\]$/i;
+const EQUATION_PATTERN = /^\[FIGURE_EQN (\d+(?:\.\d+)?) (.*)\]$/;
 
 /**
  * Detect if a line is a markdown heading.
@@ -291,6 +296,12 @@ export function flowTextIntoLines(text: string, lineWidth: number, options: Flow
       let figureCaption: string | undefined;
 
       const next = blocks[i + 1];
+      const equation = next?.match(EQUATION_PATTERN);
+      if (equation) {
+        push({ text: equation[2]!, type: 'figure', figureSrc, equationEm: Number(equation[1]) });
+        i += 1;
+        continue;
+      }
       if (next !== undefined && !FIGURE_URL_PATTERN.test(next)) {
         const captionMatch = next.match(FIGURE_CAPTION_PATTERN);
         if (captionMatch) {
@@ -350,6 +361,8 @@ export function estimateFigureLineSpan(
   lineWidth: number
 ): number {
   if (line.type !== 'figure') return 1;
+  // An equation takes its own height, with half a line of room above and below.
+  if (line.equationEm !== undefined) return Math.ceil(line.equationEm / LINE_HEIGHT_EM + 1);
 
   // Reserve extra page budget for long captions so trailing text
   // is pushed to the next page instead of being clipped at viewport bottom.

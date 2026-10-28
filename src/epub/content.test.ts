@@ -28,6 +28,26 @@ describe('convertBody', () => {
     expect(content('<h2>A <em>Title</em></h2><p><b> </b></p><p>End</p>')).toBe(`## A ${styled('italic', 'Title')}\n\nEnd`);
   });
 
+  test('reads math images in a sentence as text, and keeps display equations as figures', () => {
+    const alt = (inner: string) => `&lt;math xmlns=&quot;http://www.w3.org/1998/Math/MathML&quot;&gt;${inner}&lt;/math&gt;`;
+    const mu = alt('&lt;mi&gt;μ&lt;/mi&gt;');
+    expect(content(`<p>If <img src="1.jpg" alt="${mu}" style="height:1em"/> is known</p>`, ['1.jpg'])).toBe('If μ is known');
+    // On its own (but for punctuation and an equation number) it's a figure, without the period.
+    expect(content(`<p>One gets:</p><p><img src="1.jpg" alt="${mu}" style="vertical-align:-0.5em;height:1.845em"/>. (1)</p><p>Then</p>`, ['1.jpg'])).toBe(
+      'One gets:\n\n[FIGURE_URL:asset:OEBPS/1.jpg]\n\n[FIGURE_EQN 1.845 μ]\n\n(1)\n\nThen',
+    );
+    expect(content(`<p><img src="missing.jpg" alt="${mu}"/></p>`)).toBe('μ');
+  });
+
+  test('reads MathML as text', () => {
+    expect(content('<p>Some <math><msub><mi>x</mi><mi>i</mi></msub></math> here</p>')).toBe('Some x_i here');
+  });
+
+  test('composes spacing cedillas onto their letter', () => {
+    expect(content('<p>Elsby and S<span>¸</span>ahin</p>')).toBe('Elsby and Şahin');
+    expect(content('<p>Ay¸segül ¸Sahin, Ays¸egül, Ay ¸ segül, Barı ¸ s, Economy¸ and</p>')).toBe('Ayşegül Şahin, Ayşegül, Ayşegül, Barış, Economy¸ and');
+  });
+
   test('turns images into figure markers with figcaption or alt captions', () => {
     expect(content('<figure><img src="a.png"/><figcaption>Fig 1. A [b]</figcaption></figure>', ['a.png'])).toBe(
       '[FIGURE_URL:asset:OEBPS/a.png]\n\n[FIGURE Fig 1. A (b)]',

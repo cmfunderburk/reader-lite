@@ -558,6 +558,27 @@ button, select {
   object-fit: contain;
 }
 
+/* Equations are black-on-white images: tint the white to the page and, in the
+   dark theme, invert them to the page's light-on-dark (filters rather than
+   blending, which a transformed page would isolate). */
+.figure-image.equation {
+  align-items: center;
+}
+
+.figure-image.equation img {
+  filter: brightness(0.984);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .figure-image.equation img {
+    filter: invert(0.915);
+  }
+}
+
+:root[data-theme='dark'] .figure-image.equation img {
+  filter: invert(0.915);
+}
+
 .figure-caption {
   overflow: hidden;
   font-size: 0.8em;

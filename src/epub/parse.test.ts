@@ -36,6 +36,28 @@ describe('parseEpub', () => {
     expect(book.chapters[0]?.title).toBe('From NCX');
   });
 
+  test('titles files a TOC labels with their own name from their opening text', async () => {
+    const book = await parseEpub(
+      await buildEpub({
+        chapters: [
+          ['Text/00_front.xhtml', '<div><p>The Journal of</p><p>Economic Perspectives</p><p>Contents</p><p>Symposia and articles follow.</p></div>'],
+          ['Text/01_Basu.xhtml', '<div><p>Are Markups <em>Rising</em>?†</p><p>Susanto Basu</p><p>Body.</p></div>'],
+          ['Text/02_Next.xhtml', '<p>Named.</p>'],
+          ['Text/03_Bare.xhtml', '<p>A Title</p><p>Its first sentence ends here.</p>'],
+        ],
+        ncx: ['00_front', '01_Basu', '02_Next', '03_Bare'].map((name, i) =>
+          `<navPoint id="n${i}"><navLabel><text>${name === '02_Next' ? 'Proper Title†' : name.replace('_', ' ')}</text></navLabel><content src="Text/${name}.xhtml"/></navPoint>`,
+        ).join(''),
+      }),
+    );
+    expect(book.chapters.map((chapter) => chapter.title)).toEqual([
+      'The Journal of Economic Perspectives — Contents',
+      'Are Markups Rising? — Susanto Basu',
+      'Proper Title',
+      'A Title',
+    ]);
+  });
+
   test('splits a single-file book at top-level TOC fragments', async () => {
     const book = await parseEpub(
       await buildEpub({
