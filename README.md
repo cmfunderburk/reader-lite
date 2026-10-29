@@ -2,8 +2,6 @@
 
 A small, tablet-first reader for EPUBs and Markdown notes, built around a smooth line pacer used as an attention anchor, with Guided (OVP fixations) and Generation (letter masking) modes, plus Wikipedia's featured articles.
 
-It's a lighter sibling of [Reader](https://github.com/cmfunderburk/Reader), aimed at reading on an iPad.
-
 ## Development
 
 Requires [Bun](https://bun.com).
